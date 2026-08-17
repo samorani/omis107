@@ -18,7 +18,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
 
-MIN_PASSWORD_LENGTH = 12
+MIN_PASSWORD_LENGTH = 10
 MAX_PASSWORD_LENGTH = 128  # guards against long-password hashing DoS
 MAX_USERNAME_LENGTH = 32
 
@@ -73,6 +73,16 @@ def load_current_user():
 @app.context_processor
 def inject_user():
     return {"current_user": g.get("user")}
+
+
+@app.context_processor
+def inject_limits():
+    """Expose the validation limits so templates never hardcode them."""
+    return {
+        "min_password_length": MIN_PASSWORD_LENGTH,
+        "max_password_length": MAX_PASSWORD_LENGTH,
+        "max_username_length": MAX_USERNAME_LENGTH,
+    }
 
 
 def login_required(view):
