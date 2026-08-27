@@ -1,9 +1,0 @@
-{% extends "base.html" %}
-{% block title %}Dashboard{% endblock %}
-
-{% block content %}
-    <h1>Dashboard</h1>
-    <p>Hello, <strong>{{ current_user['username'] }}</strong>. This page is only
-       visible to signed-in users.</p>
-    <p class="muted">Member since {{ current_user['created_at'] }}.</p>
-{% endblock %}
