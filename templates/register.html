@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import password_field %}
 {% block title %}Register{% endblock %}
 
 {% block content %}
@@ -10,16 +11,12 @@
         <input id="username" name="username" type="text" value="{{ username }}"
                maxlength="{{ max_username_length }}" autocomplete="username" required autofocus>
 
-        <label for="password">Password</label>
-        <input id="password" name="password" type="password"
-               minlength="{{ min_password_length }}" maxlength="{{ max_password_length }}"
-               autocomplete="new-password" required>
+        {{ password_field("password", "Password", "new-password",
+                          min_password_length, max_password_length) }}
         <small class="muted">At least {{ min_password_length }} characters.</small>
 
-        <label for="confirm_password">Confirm password</label>
-        <input id="confirm_password" name="confirm_password" type="password"
-               minlength="{{ min_password_length }}" maxlength="{{ max_password_length }}"
-               autocomplete="new-password" required>
+        {{ password_field("confirm_password", "Confirm password", "new-password",
+                          min_password_length, max_password_length) }}
 
         <button type="submit">Register</button>
     </form>

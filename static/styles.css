@@ -127,3 +127,46 @@ a {
     color: #666;
     font-size: 14px;
 }
+
+/* Password field with Show/Hide toggle */
+.auth-form .password-field {
+    position: relative;
+    display: flex;
+}
+
+.auth-form .password-field input {
+    flex: 1;
+    box-sizing: border-box;
+    padding-right: 62px;  /* room for the toggle button */
+}
+
+.password-field .toggle-password {
+    position: absolute;
+    margin: 0;  /* cancel the submit-button margin from .auth-form button */
+    top: 1px;
+    right: 1px;
+    bottom: 1px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 0 6px 6px 0;
+    background: none;
+    color: #2b6cb0;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.password-field .toggle-password:hover {
+    background: #eef3f9;
+}
+
+.password-field .toggle-password:focus-visible {
+    outline: 2px solid #2b6cb0;
+    outline-offset: -2px;
+}
+
+/* Edge/IE render their own reveal control; hide it so there is only one. */
+.password-field input::-ms-reveal,
+.password-field input::-ms-clear {
+    display: none;
+}
