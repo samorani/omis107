@@ -84,6 +84,15 @@ input[type="password"]:focus {
     position: relative;
 }
 
+/* Hide the browser's own reveal/clear buttons (Edge, IE) so only ours shows. */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear,
+input[type="text"]::-ms-clear {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
 .password-wrapper input {
     padding-right: 46px;
 }
@@ -119,6 +128,17 @@ input[type="password"]:focus {
 .toggle-password svg {
     width: 20px;
     height: 20px;
+}
+
+/* Show exactly one icon: the eye by default, the crossed-out eye while revealed.
+   Driven by aria-pressed so the visual state can never drift from the a11y state. */
+.toggle-password .icon-eye-off,
+.toggle-password[aria-pressed="true"] .icon-eye {
+    display: none;
+}
+
+.toggle-password[aria-pressed="true"] .icon-eye-off {
+    display: block;
 }
 
 button[type="submit"] {
