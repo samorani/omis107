@@ -1,5 +1,5 @@
 import sqlite3
-from flask import Flask, render_template, request, redirect, url_for, session, g
+from flask import Flask, render_template, request, redirect, url_for, session, g, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
@@ -52,7 +52,8 @@ def register():
             db.commit()
             return redirect(url_for('login'))
         except sqlite3.IntegrityError:
-            return 'Username already exists!', 400
+            flash('That username is already taken.')
+            return render_template('register.html'), 400
 
     return render_template('register.html')
 
@@ -70,7 +71,8 @@ def login():
             session['username'] = user['username']
             return redirect(url_for('home'))
         
-        return 'Invalid credentials!', 400
+        flash('Invalid username or password.')
+        return render_template('login.html'), 400
 
     return render_template('login.html')
 
@@ -80,5 +82,5 @@ def logout():
     return redirect(url_for('login'))
 
 if __name__ == '__main__':
-    #app.run(debug=True) 
-    app.run(host="0.0.0.0", port=80)
+    app.run(debug=True) 
+    #app.run(host="0.0.0.0", port=80)

@@ -1,10 +1,11 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Home</title>
-</head>
-<body>
+{% extends "base.html" %}
+
+{% block title %}Home{% endblock %}
+{% block card_class %}card--home{% endblock %}
+
+{% block content %}
+    <div class="avatar">{{ username[0] }}</div>
     <h1>Welcome, {{ username }}!</h1>
-    <a href="{{ url_for('logout') }}">Logout</a>
-</body>
-</html>
+    <p class="subtitle">You're signed in to your protected home page.</p>
+    <a class="btn-secondary" href="{{ url_for('logout') }}">Log out</a>
+{% endblock %}
