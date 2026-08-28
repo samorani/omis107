@@ -3,7 +3,7 @@ Description=OMIS 107 web app
 After=network.target
  
 [Service]
-User=anna
+User=michele_samorani
 WorkingDirectory=/home/michele_samorani/omis107
 ExecStart=/home/michele_samorani/omis107/venv/bin/python app.py
 Environment=PYTHONUNBUFFERED=1
