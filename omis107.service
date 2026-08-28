@@ -1,0 +1,15 @@
+[Unit]
+Description=OMIS 107 web app
+After=network.target
+ 
+[Service]
+User=anna
+WorkingDirectory=/home/michele_samorani/omis107
+ExecStart=/home/michele_samorani/omis107/venv/bin/python app.py
+Environment=PYTHONUNBUFFERED=1
+Restart=always
+RestartSec=2
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+ 
+[Install]
+WantedBy=multi-user.target
