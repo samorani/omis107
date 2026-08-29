@@ -1,16 +1,24 @@
-import sqlite3
+import os
+
+import psycopg
+from dotenv import load_dotenv
 from flask import Flask, render_template, request, redirect, url_for, session, g, flash
+from psycopg.rows import dict_row
 from werkzeug.security import generate_password_hash, check_password_hash
 
+# Load .env for local development. In production the platform supplies the real
+# environment, and load_dotenv() leaves already-set variables untouched.
+load_dotenv()
+
+DATABASE_URL = os.environ['DATABASE_URL']
+
 app = Flask(__name__)
-app.secret_key = 'super-secret-key-change-this-in-production'
-DATABASE = 'app.db'
+app.secret_key = os.environ['SECRET_KEY']
 
 def get_db():
     db = getattr(g, '_database', None)
     if db is None:
-        db = g._database = sqlite3.connect(DATABASE)
-        db.row_factory = sqlite3.Row
+        db = g._database = psycopg.connect(DATABASE_URL, row_factory=dict_row)
     return db
 
 @app.teardown_appcontext
@@ -24,7 +32,7 @@ def init_db():
         db = get_db()
         db.execute('''
             CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 username TEXT UNIQUE NOT NULL,
                 password TEXT NOT NULL
             )
@@ -45,13 +53,14 @@ def register():
         username = request.form['username']
         password = request.form['password']
         hashed_password = generate_password_hash(password)
-        
+
         db = get_db()
         try:
-            db.execute('INSERT INTO users (username, password) VALUES (?, ?)', (username, hashed_password))
+            db.execute('INSERT INTO users (username, password) VALUES (%s, %s)', (username, hashed_password))
             db.commit()
             return redirect(url_for('login'))
-        except sqlite3.IntegrityError:
+        except psycopg.errors.UniqueViolation:
+            db.rollback()
             flash('That username is already taken.')
             return render_template('register.html'), 400
 
@@ -62,15 +71,15 @@ def login():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
-        
+
         db = get_db()
-        user = db.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
-        
+        user = db.execute('SELECT * FROM users WHERE username = %s', (username,)).fetchone()
+
         if user and check_password_hash(user['password'], password):
             session['user_id'] = user['id']
             session['username'] = user['username']
             return redirect(url_for('home'))
-        
+
         flash('Invalid username or password.')
         return render_template('login.html'), 400
 
@@ -82,5 +91,5 @@ def logout():
     return redirect(url_for('login'))
 
 if __name__ == '__main__':
-    #app.run(debug=True) 
-    app.run(host="0.0.0.0", port=80)
+    app.run(debug=True)
+    #app.run(host="0.0.0.0", port=80)
