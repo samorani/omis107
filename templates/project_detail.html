@@ -1,0 +1,94 @@
+{% extends "app_base.html" %}
+{% from "_event_row.html" import event_row %}
+
+{% block title %}{{ project.name }}{% endblock %}
+
+{% block content %}
+<p class="crumb"><a href="{{ url_for('home') }}">&larr; All jobs</a></p>
+
+<div class="page-head">
+    <div>
+        <h1>{{ project.name }}</h1>
+        <p class="subtitle">
+            {% if project.client_name %}{{ project.client_name }}{% endif %}
+            {%- if project.client_name and project.address %} &middot; {% endif -%}
+            {% if project.address %}{{ project.address }}{% endif %}
+            {%- if project.phone %} &middot; {{ project.phone }}{% endif %}
+        </p>
+    </div>
+    <div class="head-actions">
+        <a class="btn" href="{{ url_for('edit_project', project_id=project.id) }}">Edit job</a>
+        <a class="btn btn-primary" href="{{ url_for('new_event', project_id=project.id) }}">+ New reminder</a>
+    </div>
+</div>
+
+{% if project.notes %}
+<section class="panel">
+    <h2>Job notes</h2>
+    <p class="notes">{{ project.notes }}</p>
+</section>
+{% endif %}
+
+<section class="panel">
+    <div class="cal-nav">
+        <a class="btn btn-icon" href="{{ url_for('project_detail', project_id=project.id, year=prev_month.year, month=prev_month.month) }}"
+           aria-label="Previous month">&larr;</a>
+        <h2>{{ month_names[anchor.month - 1] }} {{ anchor.year }}</h2>
+        <a class="btn btn-icon" href="{{ url_for('project_detail', project_id=project.id, year=next_month.year, month=next_month.month) }}"
+           aria-label="Next month">&rarr;</a>
+        <a class="btn btn-today" href="{{ url_for('project_detail', project_id=project.id) }}">Today</a>
+    </div>
+
+    <div class="cal">
+        <div class="cal-row cal-head">
+            {% for name in day_names %}<div class="cal-dow">{{ name }}</div>{% endfor %}
+        </div>
+        {% for week in weeks %}
+        <div class="cal-row">
+            {% for day in week %}
+            <div class="cal-cell{% if day.month != anchor.month %} is-outside{% endif %}{% if day == today %} is-today{% endif %}">
+                <div class="cal-daynum">
+                    <span>{{ day.day }}</span>
+                    <a class="cal-add" href="{{ url_for('new_event', project_id=project.id, date=day.isoformat()) }}"
+                       aria-label="Add a reminder on {{ month_names[day.month - 1] }} {{ day.day }}">+</a>
+                </div>
+                {% for event in events_by_day.get(day, []) %}
+                    <a class="chip cat-{{ event.category|lower }}{% if event.done %} is-done{% endif %}"
+                       href="{{ url_for('edit_event', event_id=event.id) }}"
+                       title="{{ event.title }}{% if event.event_time %} at {{ event.event_time|pretty_time }}{% endif %}">
+                        {%- if event.event_time %}<b>{{ event.event_time|pretty_time }}</b> {% endif -%}
+                        {{ event.title }}
+                    </a>
+                {% endfor %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endfor %}
+    </div>
+</section>
+
+<section class="panel">
+    <h2>Still to come on this job</h2>
+    {% if upcoming %}
+        <ul class="event-list">
+            {% for event in upcoming %}
+                {{ event_row(event) }}
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="empty">
+            Nothing scheduled.
+            <a href="{{ url_for('new_event', project_id=project.id) }}">Add a reminder</a>.
+        </p>
+    {% endif %}
+</section>
+
+<section class="panel panel-danger">
+    <h2>Delete this job</h2>
+    <p class="empty">This removes the job and all of its reminders. It cannot be undone.</p>
+    <form method="POST" action="{{ url_for('delete_project', project_id=project.id) }}"
+          onsubmit="return confirm('Delete {{ project.name }} and all of its reminders?');">
+        <button type="submit" class="btn btn-danger">Delete job</button>
+    </form>
+</section>
+{% endblock %}

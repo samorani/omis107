@@ -1,11 +1,65 @@
-{% extends "base.html" %}
+{% extends "app_base.html" %}
+{% from "_event_row.html" import event_row %}
 
-{% block title %}Home{% endblock %}
-{% block card_class %}card--home{% endblock %}
+{% block title %}My jobs{% endblock %}
 
 {% block content %}
-    <div class="avatar">{{ username[0] }}</div>
-    <h1>Welcome, {{ username }}!</h1>
-    <p class="subtitle">You're signed in to your protected home page.</p>
-    <a class="btn-secondary" href="{{ url_for('logout') }}">Log out</a>
+<div class="page-head">
+    <div>
+        <h1>What's coming up</h1>
+        <p class="subtitle">Everything on your plate, across every job.</p>
+    </div>
+    <a class="btn btn-primary" href="{{ url_for('new_project') }}">+ New job</a>
+</div>
+
+{% if overdue %}
+<section class="panel panel-warn">
+    <h2>Past due &mdash; check on these</h2>
+    <ul class="event-list">
+        {% for event in overdue %}
+            {{ event_row(event, show_project=True, back='home') }}
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
+
+<section class="panel">
+    <h2>Next two weeks</h2>
+    {% if upcoming %}
+        <ul class="event-list">
+            {% for event in upcoming %}
+                {{ event_row(event, show_project=True, back='home') }}
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="empty">Nothing scheduled in the next two weeks.</p>
+    {% endif %}
+</section>
+
+<section class="panel">
+    <h2>My jobs</h2>
+    {% if projects %}
+        <div class="project-grid">
+            {% for project in projects %}
+                <a class="project-card" href="{{ url_for('project_detail', project_id=project.id) }}">
+                    <h3>{{ project.name }}</h3>
+                    {% if project.client_name %}<p class="project-client">{{ project.client_name }}</p>{% endif %}
+                    {% if project.address %}<p class="project-address">{{ project.address }}</p>{% endif %}
+                    <p class="project-count">
+                        {% if project.open_count %}
+                            {{ project.open_count }} reminder{{ '' if project.open_count == 1 else 's' }} coming up
+                        {% else %}
+                            Nothing scheduled
+                        {% endif %}
+                    </p>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="empty">
+            No jobs yet. <a href="{{ url_for('new_project') }}">Create your first one</a> &mdash;
+            one job per client.
+        </p>
+    {% endif %}
+</section>
 {% endblock %}

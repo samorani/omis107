@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block body %}
+<header class="topbar">
+    <div class="topbar-inner">
+        <a class="brand" href="{{ url_for('home') }}">Jobsite</a>
+        <div class="topbar-right">
+            <span class="who">{{ session['username'] }}</span>
+            <a class="topbar-link" href="{{ url_for('logout') }}">Log out</a>
+        </div>
+    </div>
+</header>
+
+<main class="container">
+    {% for message in get_flashed_messages() %}
+        <div class="alert">{{ message }}</div>
+    {% endfor %}
+    {% block content %}{% endblock %}
+</main>
+{% endblock %}

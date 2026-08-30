@@ -1,0 +1,65 @@
+{% extends "app_base.html" %}
+
+{% block title %}{{ 'New job' if mode == 'new' else 'Edit job' }}{% endblock %}
+
+{% block content %}
+<p class="crumb">
+    {% if mode == 'edit' and project.id %}
+        <a href="{{ url_for('project_detail', project_id=project.id) }}">&larr; Back to job</a>
+    {% else %}
+        <a href="{{ url_for('home') }}">&larr; All jobs</a>
+    {% endif %}
+</p>
+
+<div class="page-head">
+    <div>
+        <h1>{{ 'New job' if mode == 'new' else 'Edit job' }}</h1>
+        <p class="subtitle">One job per client. Only the name is required.</p>
+    </div>
+</div>
+
+<section class="panel">
+    <form method="POST" class="stack-form">
+        <div class="field">
+            <label for="name">Job name</label>
+            <input type="text" id="name" name="name" required autofocus
+                   placeholder="e.g. Miller kitchen remodel"
+                   value="{{ project.get('name', '') }}">
+        </div>
+
+        <div class="field">
+            <label for="client_name">Client</label>
+            <input type="text" id="client_name" name="client_name"
+                   placeholder="e.g. Dave and Sue Miller"
+                   value="{{ project.get('client_name', '') }}">
+        </div>
+
+        <div class="field">
+            <label for="address">Address</label>
+            <input type="text" id="address" name="address"
+                   placeholder="e.g. 412 Oak St"
+                   value="{{ project.get('address', '') }}">
+        </div>
+
+        <div class="field">
+            <label for="phone">Phone</label>
+            <input type="tel" id="phone" name="phone"
+                   placeholder="e.g. 408-555-0142"
+                   value="{{ project.get('phone', '') }}">
+        </div>
+
+        <div class="field">
+            <label for="notes">Notes</label>
+            <textarea id="notes" name="notes" rows="4"
+                      placeholder="Anything worth remembering about this job">{{ project.get('notes', '') }}</textarea>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">
+                {{ 'Create job' if mode == 'new' else 'Save changes' }}
+            </button>
+            <a class="btn" href="{{ url_for('project_detail', project_id=project.id) if mode == 'edit' and project.id else url_for('home') }}">Cancel</a>
+        </div>
+    </form>
+</section>
+{% endblock %}

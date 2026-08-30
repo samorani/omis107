@@ -1,0 +1,70 @@
+{% extends "app_base.html" %}
+
+{% block title %}{{ 'New reminder' if mode == 'new' else 'Edit reminder' }}{% endblock %}
+
+{% block content %}
+<p class="crumb"><a href="{{ url_for('project_detail', project_id=project.id) }}">&larr; {{ project.name }}</a></p>
+
+<div class="page-head">
+    <div>
+        <h1>{{ 'New reminder' if mode == 'new' else 'Edit reminder' }}</h1>
+        <p class="subtitle">A short note to yourself about what happens, and when.</p>
+    </div>
+</div>
+
+<section class="panel">
+    <form method="POST" class="stack-form">
+        <div class="field">
+            <label for="title">What is it?</label>
+            <input type="text" id="title" name="title" required autofocus
+                   placeholder="e.g. Electrician rough-in"
+                   value="{{ event.get('title', '') }}">
+        </div>
+
+        <div class="field-row">
+            <div class="field">
+                <label for="event_date">Day</label>
+                <input type="date" id="event_date" name="event_date" required
+                       value="{{ event.get('event_date', '') }}">
+            </div>
+            <div class="field">
+                <label for="event_time">Time <span class="hint">(optional)</span></label>
+                <input type="time" id="event_time" name="event_time"
+                       value="{{ event.get('event_time', '') }}">
+            </div>
+        </div>
+
+        <div class="field">
+            <label for="category">Kind</label>
+            <select id="category" name="category">
+                {% for option in categories %}
+                    <option value="{{ option }}" {{ 'selected' if event.get('category') == option }}>{{ option }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="field">
+            <label for="notes">Details <span class="hint">(optional)</span></label>
+            <textarea id="notes" name="notes" rows="4"
+                      placeholder="Phone numbers, what to have ready, anything else">{{ event.get('notes', '') }}</textarea>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">
+                {{ 'Add reminder' if mode == 'new' else 'Save changes' }}
+            </button>
+            <a class="btn" href="{{ url_for('project_detail', project_id=project.id) }}">Cancel</a>
+        </div>
+    </form>
+</section>
+
+{% if mode == 'edit' and event_id %}
+<section class="panel panel-danger">
+    <h2>Delete this reminder</h2>
+    <form method="POST" action="{{ url_for('delete_event', event_id=event_id) }}"
+          onsubmit="return confirm('Delete this reminder?');">
+        <button type="submit" class="btn btn-danger">Delete reminder</button>
+    </form>
+</section>
+{% endif %}
+{% endblock %}
