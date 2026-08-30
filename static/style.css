@@ -690,3 +690,199 @@ a:hover {
         opacity: 1;
     }
 }
+
+/* ------------------------------------------------------- Voice memos --- */
+
+.panel-record {
+    border-color: #c7d2fe;
+    background: linear-gradient(135deg, #f5f6ff 0%, #eef1fe 100%);
+}
+
+.record-box {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 18px;
+}
+
+.record-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 24px;
+    font-size: 17px;
+    font-weight: 700;
+    font-family: inherit;
+    color: #fff;
+    background: var(--accent);
+    border: none;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.record-btn:hover {
+    background: var(--accent-dark);
+}
+
+.record-btn:disabled {
+    background: var(--cat-other);
+    cursor: default;
+}
+
+.record-btn svg {
+    width: 22px;
+    height: 22px;
+}
+
+.record-btn.is-recording {
+    background: #dc2626;
+    animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    50% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0.16); }
+}
+
+/* Respect people who have asked the OS for less motion. */
+@media (prefers-reduced-motion: reduce) {
+    .record-btn.is-recording {
+        animation: none;
+    }
+}
+
+.record-copy {
+    flex: 1 1 260px;
+}
+
+#record-status {
+    margin: 0;
+    font-weight: 600;
+}
+
+.record-hint {
+    margin: 6px 0 0;
+    font-size: 14px;
+    color: var(--muted);
+}
+
+/* ----------------------------------------------------------- Drafts --- */
+
+.panel-draft {
+    border-color: #c7d2fe;
+    background: #f7f8ff;
+}
+
+.panel-draft h2 {
+    color: var(--accent-dark);
+}
+
+.draft-list {
+    margin: 14px 0 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 12px;
+}
+
+.draft-row {
+    padding: 14px 16px;
+    background: var(--card);
+    /* Dashed all round: this is not a commitment yet. */
+    border: 2px dashed #c7d2fe;
+    border-radius: 10px;
+}
+
+.draft-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.draft-when {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.draft-project {
+    font-size: 14px;
+    color: var(--muted);
+}
+
+.draft-title {
+    margin: 8px 0 0;
+    font-size: 17px;
+    font-weight: 600;
+}
+
+.draft-notes {
+    margin: 4px 0 0;
+    font-size: 15px;
+    color: var(--muted);
+}
+
+.draft-heard {
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    font-size: 14px;
+    font-style: italic;
+    color: var(--muted);
+    background: #f7f8fc;
+    border-left: 3px solid var(--border);
+    border-radius: 0 6px 6px 0;
+}
+
+.draft-heard span {
+    font-style: normal;
+    font-weight: 700;
+}
+
+.draft-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.btn-small {
+    padding: 8px 14px;
+    font-size: 14px;
+}
+
+.btn-quiet {
+    color: var(--muted);
+    background: transparent;
+    border-color: transparent;
+}
+
+.btn-quiet:hover {
+    color: var(--error-text);
+    background: var(--error-bg);
+}
+
+/* A draft on the calendar reads as pencilled in, never as booked. */
+.chip.is-draft {
+    color: var(--text);
+    background: #fff;
+    border: 1px dashed currentColor;
+    opacity: 0.85;
+}
+
+.draft-banner {
+    margin-bottom: 20px;
+    padding: 12px 14px;
+    font-size: 15px;
+    color: var(--accent-dark);
+    background: #f7f8ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 8px;
+}
+
+.draft-banner strong {
+    display: block;
+    margin-bottom: 2px;
+}

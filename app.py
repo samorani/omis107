@@ -1,6 +1,7 @@
 import os
+import uuid
 from calendar import Calendar
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 from functools import wraps
 
 import psycopg
@@ -8,6 +9,8 @@ from dotenv import load_dotenv
 from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for
 from psycopg.rows import dict_row
 from werkzeug.security import generate_password_hash, check_password_hash
+
+import ai
 
 # Load .env for local development. In production the platform supplies the real
 # environment, and load_dotenv() leaves already-set variables untouched.
@@ -17,6 +20,20 @@ DATABASE_URL = os.environ['DATABASE_URL']
 
 app = Flask(__name__)
 app.secret_key = os.environ['SECRET_KEY']
+
+# Voice memos land here. Recordings are kept so a bad parse can be replayed
+# against a better model later, which is the whole reason we upload audio
+# instead of letting the browser transcribe it.
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# Matches the transcription API's own 25 MB ceiling, so an oversized upload
+# fails here instead of after we have paid to move it.
+app.config['MAX_CONTENT_LENGTH'] = ai.MAX_AUDIO_BYTES
+
+# MediaRecorder gives webm on Chrome and mp4 on Safari; both are accepted.
+AUDIO_EXTENSIONS = {'audio/webm': '.webm', 'audio/ogg': '.ogg',
+                    'audio/mp4': '.m4a', 'audio/mpeg': '.mp3', 'audio/wav': '.wav'}
 
 # Fixed list, not a table: contractors should pick from it, never build and
 # maintain one. Each value has a matching colour in style.css.
@@ -83,6 +100,21 @@ def init_db():
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )
         ''')
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS voice_notes (
+                id SERIAL PRIMARY KEY,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                transcript TEXT NOT NULL,
+                audio_filename TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        ''')
+        # Added after the events table already existed, so these run as ALTERs.
+        # status: 'draft' until a person confirms it, then 'confirmed'.
+        db.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'confirmed'")
+        db.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual'")
+        db.execute('ALTER TABLE events ADD COLUMN IF NOT EXISTS voice_note_id INTEGER '
+                   'REFERENCES voice_notes(id) ON DELETE SET NULL')
         db.execute('CREATE INDEX IF NOT EXISTS events_project_date_idx ON events (project_id, event_date)')
         db.commit()
 
@@ -165,6 +197,51 @@ def event_form_values(event):
         'event_time': event['event_time'].strftime('%H:%M') if event['event_time'] else '',
         'category': event['category'],
     }
+
+
+def coerce_parsed_event(candidate):
+    """Validate one model-produced event before it can reach the database.
+
+    Model output is untrusted input like any other. A bad date drops the event
+    (returns None) rather than guessing at one; a bad category falls back to
+    'Other', since being wrong about the colour is harmless.
+    """
+    title = (candidate.get('title') or '').strip()
+    raw_date = (candidate.get('event_date') or '').strip()
+    if not title or not raw_date:
+        return None
+    try:
+        date.fromisoformat(raw_date)
+    except ValueError:
+        return None
+
+    raw_time = (candidate.get('event_time') or '').strip()
+    try:
+        event_time = time.fromisoformat(raw_time) if raw_time else None
+    except ValueError:
+        event_time = None
+
+    category = candidate.get('category')
+    if category not in EVENT_CATEGORIES:
+        category = 'Other'
+
+    return {
+        'title': title[:200],
+        'notes': (candidate.get('notes') or '').strip(),
+        'event_date': raw_date,
+        'event_time': event_time,
+        'category': category,
+    }
+
+
+def voice_transcript(event):
+    """The memo an event came from, or None if it was typed by hand."""
+    if not event.get('voice_note_id'):
+        return None
+    row = get_db().execute(
+        'SELECT transcript FROM voice_notes WHERE id = %s', (event['voice_note_id'],)
+    ).fetchone()
+    return row['transcript'] if row else None
 
 
 def month_anchor():
@@ -275,11 +352,21 @@ def home():
     db = get_db()
     today = date.today()
 
+    drafts = db.execute(
+        '''SELECT e.*, p.name AS project_name, v.transcript
+           FROM events e
+           JOIN projects p ON p.id = e.project_id
+           LEFT JOIN voice_notes v ON v.id = e.voice_note_id
+           WHERE p.user_id = %s AND e.status = 'draft'
+           ORDER BY e.created_at DESC, e.event_date''',
+        (session['user_id'],)
+    ).fetchall()
+
     projects = db.execute(
         '''SELECT p.*,
                   (SELECT count(*) FROM events e
                     WHERE e.project_id = p.id AND e.done = FALSE
-                      AND e.event_date >= %s) AS open_count
+                      AND e.status = 'confirmed' AND e.event_date >= %s) AS open_count
            FROM projects p
            WHERE p.user_id = %s
            ORDER BY p.name''',
@@ -289,7 +376,8 @@ def home():
     overdue = db.execute(
         '''SELECT e.*, p.name AS project_name
            FROM events e JOIN projects p ON p.id = e.project_id
-           WHERE p.user_id = %s AND e.done = FALSE AND e.event_date < %s
+           WHERE p.user_id = %s AND e.done = FALSE AND e.status = 'confirmed'
+             AND e.event_date < %s
            ORDER BY e.event_date DESC, e.event_time NULLS FIRST''',
         (session['user_id'], today)
     ).fetchall()
@@ -297,13 +385,14 @@ def home():
     upcoming = db.execute(
         '''SELECT e.*, p.name AS project_name
            FROM events e JOIN projects p ON p.id = e.project_id
-           WHERE p.user_id = %s AND e.done = FALSE
+           WHERE p.user_id = %s AND e.done = FALSE AND e.status = 'confirmed'
              AND e.event_date BETWEEN %s AND %s
            ORDER BY e.event_date, e.event_time NULLS FIRST''',
         (session['user_id'], today, today + timedelta(days=13))
     ).fetchall()
 
-    return render_template('home.html', projects=projects, overdue=overdue, upcoming=upcoming)
+    return render_template('home.html', projects=projects, drafts=drafts,
+                           overdue=overdue, upcoming=upcoming)
 
 
 # --------------------------------------------------------------------------
@@ -359,10 +448,20 @@ def project_detail(project_id):
 
     upcoming = db.execute(
         '''SELECT * FROM events
-           WHERE project_id = %s AND done = FALSE AND event_date >= %s
+           WHERE project_id = %s AND done = FALSE AND status = 'confirmed'
+             AND event_date >= %s
            ORDER BY event_date, event_time NULLS FIRST
            LIMIT 25''',
         (project_id, date.today())
+    ).fetchall()
+
+    drafts = db.execute(
+        '''SELECT e.*, v.transcript
+           FROM events e
+           LEFT JOIN voice_notes v ON v.id = e.voice_note_id
+           WHERE e.project_id = %s AND e.status = 'draft'
+           ORDER BY e.created_at DESC, e.event_date''',
+        (project_id,)
     ).fetchall()
 
     return render_template(
@@ -371,6 +470,8 @@ def project_detail(project_id):
         weeks=weeks,
         events_by_day=events_by_day,
         upcoming=upcoming,
+        drafts=drafts,
+        ai_provider=ai.provider_name(),
         anchor=anchor,
         prev_month=shift_month(anchor, -1),
         next_month=shift_month(anchor, 1),
@@ -473,19 +574,25 @@ def edit_event(event_id):
                                    event_id=event_id, categories=EVENT_CATEGORIES, mode='edit'), 400
 
         db = get_db()
+        # Saving a draft is how it gets confirmed -- reviewing it *is* the
+        # approval, so there is no second button to forget to press.
         db.execute(
             '''UPDATE events SET title = %s, notes = %s, event_date = %s,
-                                 event_time = %s, category = %s
+                                 event_time = %s, category = %s, status = 'confirmed'
                WHERE id = %s''',
             (values['title'], values['notes'], values['event_date'],
              values['event_time'] or None, values['category'], event_id)
         )
         db.commit()
+        if event['status'] == 'draft':
+            flash('Reminder confirmed.')
         return redirect(url_for('project_detail', project_id=event['project_id']))
 
     return render_template('event_form.html', project=project,
                            event=event_form_values(event), event_id=event_id,
-                           categories=EVENT_CATEGORIES, mode='edit')
+                           categories=EVENT_CATEGORIES, mode='edit',
+                           is_draft=event['status'] == 'draft',
+                           transcript=voice_transcript(event))
 
 
 @app.route('/events/<int:event_id>/toggle', methods=['POST'])
@@ -509,6 +616,94 @@ def delete_event(event_id):
     db.commit()
     flash('Reminder deleted.')
     return redirect(url_for('project_detail', project_id=event['project_id']))
+
+
+@app.route('/events/<int:event_id>/confirm', methods=['POST'])
+@login_required
+def confirm_event(event_id):
+    """Accept a draft as-is, without opening the form."""
+    event = owned_event(event_id)
+    db = get_db()
+    db.execute("UPDATE events SET status = 'confirmed' WHERE id = %s", (event_id,))
+    db.commit()
+    flash('Reminder confirmed.')
+    if request.form.get('next') == 'home':
+        return redirect(url_for('home'))
+    return redirect(url_for('project_detail', project_id=event['project_id']))
+
+
+# --------------------------------------------------------------------------
+# Voice memos
+# --------------------------------------------------------------------------
+
+@app.route('/projects/<int:project_id>/voice', methods=['POST'])
+@login_required
+def voice_memo(project_id):
+    """Record -> transcribe -> parse -> draft events awaiting confirmation.
+
+    Nothing here writes a confirmed event. Everything the model produces lands
+    as a draft, because a misheard date on a job this size is expensive and a
+    person reviewing it costs one tap.
+    """
+    project = owned_project(project_id)
+
+    upload = request.files.get('audio')
+    if upload is None or not upload.filename:
+        flash('No recording was received.')
+        return redirect(url_for('project_detail', project_id=project_id))
+
+    mime = (upload.mimetype or '').split(';')[0]
+    extension = AUDIO_EXTENSIONS.get(mime, '.webm')
+    filename = '%d-%s%s' % (project_id, uuid.uuid4().hex, extension)
+    audio_path = os.path.join(UPLOAD_DIR, filename)
+    upload.save(audio_path)
+
+    try:
+        transcript = ai.transcribe(audio_path)
+    except Exception as exc:
+        app.logger.exception('transcription failed')
+        flash('Could not transcribe that recording: %s' % exc)
+        return redirect(url_for('project_detail', project_id=project_id))
+
+    if not transcript:
+        flash('That recording came back empty. Try again, a bit closer to the mic.')
+        return redirect(url_for('project_detail', project_id=project_id))
+
+    try:
+        candidates = ai.parse_transcript(transcript, project['name'])
+    except Exception as exc:
+        app.logger.exception('parsing failed')
+        flash('Heard you, but could not read it as reminders: %s' % exc)
+        return redirect(url_for('project_detail', project_id=project_id))
+
+    db = get_db()
+    note = db.execute(
+        'INSERT INTO voice_notes (project_id, transcript, audio_filename) '
+        'VALUES (%s, %s, %s) RETURNING id',
+        (project_id, transcript, filename)
+    ).fetchone()
+
+    created = 0
+    for candidate in candidates:
+        values = coerce_parsed_event(candidate)
+        if values is None:            # unusable date -- drop it rather than guess
+            continue
+        db.execute(
+            """INSERT INTO events (project_id, title, notes, event_date, event_time,
+                                   category, status, source, voice_note_id)
+               VALUES (%s, %s, %s, %s, %s, %s, 'draft', 'voice', %s)""",
+            (project_id, values['title'], values['notes'], values['event_date'],
+             values['event_time'], values['category'], note['id'])
+        )
+        created += 1
+    db.commit()
+
+    if created:
+        flash('Added %d draft reminder%s from your memo. Check them below.'
+              % (created, '' if created == 1 else 's'))
+    else:
+        flash('Heard: "%s" -- but nothing in it looked like a reminder.' % transcript)
+    return redirect(url_for('project_detail', project_id=project_id))
 
 
 if __name__ == '__main__':

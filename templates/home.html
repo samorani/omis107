@@ -1,5 +1,6 @@
 {% extends "app_base.html" %}
 {% from "_event_row.html" import event_row %}
+{% from "_draft_row.html" import draft_row %}
 
 {% block title %}My jobs{% endblock %}
 
@@ -11,6 +12,18 @@
     </div>
     <a class="btn btn-primary" href="{{ url_for('new_project') }}">+ New job</a>
 </div>
+
+{% if drafts %}
+<section class="panel panel-draft">
+    <h2>Needs your OK &mdash; {{ drafts|length }} from your memos</h2>
+    <p class="empty">Recorded but not on the calendar yet. Confirm, fix, or throw each one away.</p>
+    <ul class="draft-list">
+        {% for event in drafts %}
+            {{ draft_row(event, show_project=True, back='home') }}
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
 
 {% if overdue %}
 <section class="panel panel-warn">

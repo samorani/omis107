@@ -1,5 +1,6 @@
 {% extends "app_base.html" %}
 {% from "_event_row.html" import event_row %}
+{% from "_draft_row.html" import draft_row %}
 
 {% block title %}{{ project.name }}{% endblock %}
 
@@ -21,6 +22,44 @@
         <a class="btn btn-primary" href="{{ url_for('new_event', project_id=project.id) }}">+ New reminder</a>
     </div>
 </div>
+
+<section class="panel panel-record">
+    <div class="record-box">
+        <form id="record-form" method="POST" enctype="multipart/form-data"
+              action="{{ url_for('voice_memo', project_id=project.id) }}">
+            <button type="button" id="record-btn" class="record-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="23"></line>
+                </svg>
+                <span class="record-label">Record a memo</span>
+            </button>
+        </form>
+        <div class="record-copy">
+            <p id="record-status">Say what's happening and when. One memo can hold several things.</p>
+            <p class="record-hint">
+                Everything you record becomes a draft you confirm later &mdash; nothing lands on
+                the calendar on its own.
+                {% if ai_provider == 'stub' %}
+                    <strong>Demo mode:</strong> no AI key is set, so this returns a canned example.
+                {% endif %}
+            </p>
+        </div>
+    </div>
+</section>
+
+{% if drafts %}
+<section class="panel panel-draft">
+    <h2>Needs your OK &mdash; {{ drafts|length }}</h2>
+    <ul class="draft-list">
+        {% for event in drafts %}
+            {{ draft_row(event) }}
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
 
 {% if project.notes %}
 <section class="panel">
@@ -53,7 +92,7 @@
                        aria-label="Add a reminder on {{ month_names[day.month - 1] }} {{ day.day }}">+</a>
                 </div>
                 {% for event in events_by_day.get(day, []) %}
-                    <a class="chip cat-{{ event.category|lower }}{% if event.done %} is-done{% endif %}"
+                    <a class="chip cat-{{ event.category|lower }}{% if event.done %} is-done{% endif %}{% if event.status == 'draft' %} is-draft{% endif %}"
                        href="{{ url_for('edit_event', event_id=event.id) }}"
                        title="{{ event.title }}{% if event.event_time %} at {{ event.event_time|pretty_time }}{% endif %}">
                         {%- if event.event_time %}<b>{{ event.event_time|pretty_time }}</b> {% endif -%}

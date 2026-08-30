@@ -1,0 +1,30 @@
+{% macro draft_row(event, show_project=False, back='') %}
+<li class="draft-row">
+    <div class="draft-head">
+        <span class="tag cat-{{ event.category|lower }}">{{ event.category }}</span>
+        <span class="draft-when">
+            {{ event.event_date|pretty_date }}{% if event.event_time %} &middot; {{ event.event_time|pretty_time }}{% endif %}
+        </span>
+        {% if show_project %}<span class="draft-project">{{ event.project_name }}</span>{% endif %}
+    </div>
+
+    <p class="draft-title">{{ event.title }}</p>
+    {% if event.notes %}<p class="draft-notes">{{ event.notes }}</p>{% endif %}
+
+    {% if event.transcript %}
+        <p class="draft-heard"><span>You said:</span> &ldquo;{{ event.transcript }}&rdquo;</p>
+    {% endif %}
+
+    <div class="draft-actions">
+        <form method="POST" action="{{ url_for('confirm_event', event_id=event.id) }}">
+            {% if back %}<input type="hidden" name="next" value="{{ back }}">{% endif %}
+            <button type="submit" class="btn btn-primary btn-small">Looks right</button>
+        </form>
+        <a class="btn btn-small" href="{{ url_for('edit_event', event_id=event.id) }}">Fix it</a>
+        <form method="POST" action="{{ url_for('delete_event', event_id=event.id) }}"
+              onsubmit="return confirm('Throw this one away?');">
+            <button type="submit" class="btn btn-small btn-quiet">Discard</button>
+        </form>
+    </div>
+</li>
+{% endmacro %}

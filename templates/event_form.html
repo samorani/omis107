@@ -12,6 +12,16 @@
     </div>
 </div>
 
+{% if is_draft %}
+<div class="draft-banner">
+    <strong>This is a draft from a voice memo.</strong>
+    Check the day and time, then save to put it on the calendar.
+</div>
+{% if transcript %}
+<p class="draft-heard"><span>You said:</span> &ldquo;{{ transcript }}&rdquo;</p>
+{% endif %}
+{% endif %}
+
 <section class="panel">
     <form method="POST" class="stack-form">
         <div class="field">
@@ -51,7 +61,7 @@
 
         <div class="form-actions">
             <button type="submit" class="btn btn-primary">
-                {{ 'Add reminder' if mode == 'new' else 'Save changes' }}
+                {% if mode == 'new' %}Add reminder{% elif is_draft %}Confirm and save{% else %}Save changes{% endif %}
             </button>
             <a class="btn" href="{{ url_for('project_detail', project_id=project.id) }}">Cancel</a>
         </div>
