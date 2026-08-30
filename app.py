@@ -91,7 +91,7 @@ def logout():
     return redirect(url_for('login'))
 
 if __name__ == '__main__':
-    if os.environ['PORT'] == 80:
+    if os.environ['PORT'] == '80':
         app.run(host="0.0.0.0", port=80)
     else:
         app.run(debug=True)
