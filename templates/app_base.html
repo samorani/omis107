@@ -5,6 +5,7 @@
     <div class="topbar-inner">
         <a class="brand" href="{{ url_for('home') }}">Jobsite</a>
         <div class="topbar-right">
+            <a class="topbar-link" href="{{ url_for('history') }}">History</a>
             <span class="who">{{ session['username'] }}</span>
             <a class="topbar-link" href="{{ url_for('logout') }}">Log out</a>
         </div>

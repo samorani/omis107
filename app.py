@@ -6,11 +6,13 @@ from functools import wraps
 
 import psycopg
 from dotenv import load_dotenv
-from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for
+from flask import (Flask, abort, flash, g, jsonify, redirect, render_template, request,
+                   session, url_for)
 from psycopg.rows import dict_row
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import ai
+import worker
 
 # Load .env for local development. In production the platform supplies the real
 # environment, and load_dotenv() leaves already-set variables untouched.
@@ -109,17 +111,32 @@ def init_db():
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )
         ''')
+        # The table doubles as the work queue: a recording is durable the moment
+        # it is uploaded, so the browser can leave and the work still happens.
+        db.execute("ALTER TABLE voice_notes ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'done'")
+        db.execute('ALTER TABLE voice_notes ADD COLUMN IF NOT EXISTS error TEXT')
+        db.execute('ALTER TABLE voice_notes ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0')
+        db.execute('ALTER TABLE voice_notes ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ')
+        db.execute('ALTER TABLE voice_notes ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ')
+        db.execute('ALTER TABLE voice_notes ALTER COLUMN transcript DROP NOT NULL')
+        db.execute('CREATE INDEX IF NOT EXISTS voice_notes_status_idx ON voice_notes (status)')
         # Added after the events table already existed, so these run as ALTERs.
         # status: 'draft' until a person confirms it, then 'confirmed'.
         db.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'confirmed'")
         db.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual'")
         db.execute('ALTER TABLE events ADD COLUMN IF NOT EXISTS voice_note_id INTEGER '
                    'REFERENCES voice_notes(id) ON DELETE SET NULL')
+        # Null until the reminder is checked off; cleared again if it is reopened.
+        db.execute('ALTER TABLE events ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ')
         db.execute('CREATE INDEX IF NOT EXISTS events_project_date_idx ON events (project_id, event_date)')
         db.commit()
 
 
 init_db()
+
+# One worker thread per process, polling the queue. Several gunicorn workers can
+# run this safely -- claiming a job uses FOR UPDATE SKIP LOCKED.
+worker.start(DATABASE_URL, lambda c: coerce_parsed_event(c), UPLOAD_DIR)
 
 
 # --------------------------------------------------------------------------
@@ -288,6 +305,14 @@ def pretty_date(value):
                           MONTH_NAMES[value.month - 1][:3], value.day)
 
 
+@app.template_filter('pretty_stamp')
+def pretty_stamp(value):
+    """Timestamp -> 'Sep 1, 2026'. Blank when never set."""
+    if value is None:
+        return ''
+    return '%s %d, %d' % (MONTH_NAMES[value.month - 1][:3], value.day, value.year)
+
+
 # --------------------------------------------------------------------------
 # Auth
 # --------------------------------------------------------------------------
@@ -391,8 +416,58 @@ def home():
         (session['user_id'], today, today + timedelta(days=13))
     ).fetchall()
 
+    working = db.execute(
+        '''SELECT count(*) AS n FROM voice_notes v JOIN projects p ON p.id = v.project_id
+           WHERE p.user_id = %s AND v.status IN ('pending', 'processing')''',
+        (session['user_id'],)
+    ).fetchone()['n']
+
     return render_template('home.html', projects=projects, drafts=drafts,
-                           overdue=overdue, upcoming=upcoming)
+                           overdue=overdue, upcoming=upcoming, working=working)
+
+
+# --------------------------------------------------------------------------
+# History
+# --------------------------------------------------------------------------
+
+HISTORY_FILTERS = {
+    'done': "AND e.done = TRUE",
+    'missed': "AND e.done = FALSE AND e.event_date < %(today)s",
+    'all': "",
+}
+
+
+@app.route('/history')
+@app.route('/projects/<int:project_id>/history')
+@login_required
+def history(project_id=None):
+    """Everything that has already happened, completed or not.
+
+    Deliberately shows checked-off items -- "did I ever get the framing
+    inspection done, and when?" is a question the calendar cannot answer once
+    the date has passed.
+    """
+    project = owned_project(project_id) if project_id else None
+    show = request.args.get('show', 'all')
+    if show not in HISTORY_FILTERS:
+        show = 'all'
+
+    params = {'user_id': session['user_id'], 'today': date.today()}
+    where = ['p.user_id = %(user_id)s', "e.status = 'confirmed'"]
+    if project_id:
+        where.append('e.project_id = %(project_id)s')
+        params['project_id'] = project_id
+
+    rows = get_db().execute(
+        """SELECT e.*, p.name AS project_name
+             FROM events e JOIN projects p ON p.id = e.project_id
+            WHERE """ + ' AND '.join(where) + ' ' + HISTORY_FILTERS[show] + """
+            ORDER BY e.event_date DESC, e.event_time DESC NULLS LAST""",
+        params
+    ).fetchall()
+
+    return render_template('history.html', events=rows, project=project,
+                           show=show, today=date.today())
 
 
 # --------------------------------------------------------------------------
@@ -464,6 +539,21 @@ def project_detail(project_id):
         (project_id,)
     ).fetchall()
 
+    # Memos still in the pipeline, and ones that came back with nothing useful.
+    working = db.execute(
+        "SELECT count(*) AS n FROM voice_notes "
+        "WHERE project_id = %s AND status IN ('pending', 'processing')",
+        (project_id,)
+    ).fetchone()['n']
+
+    problems = db.execute(
+        '''SELECT * FROM voice_notes
+           WHERE project_id = %s AND error IS NOT NULL
+             AND status IN ('failed', 'done')
+           ORDER BY created_at DESC LIMIT 5''',
+        (project_id,)
+    ).fetchall()
+
     return render_template(
         'project_detail.html',
         project=project,
@@ -471,6 +561,8 @@ def project_detail(project_id):
         events_by_day=events_by_day,
         upcoming=upcoming,
         drafts=drafts,
+        working=working,
+        problems=problems,
         ai_provider=ai.provider_name(),
         anchor=anchor,
         prev_month=shift_month(anchor, -1),
@@ -600,10 +692,26 @@ def edit_event(event_id):
 def toggle_event(event_id):
     event = owned_event(event_id)
     db = get_db()
-    db.execute('UPDATE events SET done = NOT done WHERE id = %s', (event_id,))
+    # In an UPDATE, `done` on the right-hand side is still the OLD value, so
+    # this stamps now() when checking off and clears it when reopening.
+    db.execute(
+        '''UPDATE events
+              SET done = NOT done,
+                  completed_at = CASE WHEN done THEN NULL ELSE now() END
+            WHERE id = %s''',
+        (event_id,)
+    )
     db.commit()
-    if request.form.get('next') == 'home':
+    # Where to land afterwards. Only named destinations are honoured -- never a
+    # URL from the form, which would be an open redirect.
+    destination = request.form.get('next')
+    if destination == 'home':
         return redirect(url_for('home'))
+    if destination == 'history':
+        scope = request.form.get('project_id')
+        return redirect(url_for('history',
+                                project_id=int(scope) if scope and scope.isdigit() else None,
+                                show=request.form.get('show') or None))
     return redirect(url_for('project_detail', project_id=event['project_id']))
 
 
@@ -639,71 +747,81 @@ def confirm_event(event_id):
 @app.route('/projects/<int:project_id>/voice', methods=['POST'])
 @login_required
 def voice_memo(project_id):
-    """Record -> transcribe -> parse -> draft events awaiting confirmation.
+    """Accept a recording and return at once.
 
-    Nothing here writes a confirmed event. Everything the model produces lands
-    as a draft, because a misheard date on a job this size is expensive and a
-    person reviewing it costs one tap.
+    We only save the audio and queue a row here. Transcription and parsing run
+    on the worker thread, so stopping a recording is instant: record the next
+    one immediately, or close the browser and the drafts will be waiting.
     """
-    project = owned_project(project_id)
+    owned_project(project_id)
 
     upload = request.files.get('audio')
     if upload is None or not upload.filename:
-        flash('No recording was received.')
-        return redirect(url_for('project_detail', project_id=project_id))
+        return jsonify(error='No recording was received.'), 400
 
     mime = (upload.mimetype or '').split(';')[0]
     extension = AUDIO_EXTENSIONS.get(mime, '.webm')
     filename = '%d-%s%s' % (project_id, uuid.uuid4().hex, extension)
-    audio_path = os.path.join(UPLOAD_DIR, filename)
-    upload.save(audio_path)
-
-    try:
-        transcript = ai.transcribe(audio_path)
-    except Exception as exc:
-        app.logger.exception('transcription failed')
-        flash('Could not transcribe that recording: %s' % exc)
-        return redirect(url_for('project_detail', project_id=project_id))
-
-    if not transcript:
-        flash('That recording came back empty. Try again, a bit closer to the mic.')
-        return redirect(url_for('project_detail', project_id=project_id))
-
-    try:
-        candidates = ai.parse_transcript(transcript, project['name'])
-    except Exception as exc:
-        app.logger.exception('parsing failed')
-        flash('Heard you, but could not read it as reminders: %s' % exc)
-        return redirect(url_for('project_detail', project_id=project_id))
+    upload.save(os.path.join(UPLOAD_DIR, filename))
 
     db = get_db()
     note = db.execute(
-        'INSERT INTO voice_notes (project_id, transcript, audio_filename) '
-        'VALUES (%s, %s, %s) RETURNING id',
-        (project_id, transcript, filename)
+        "INSERT INTO voice_notes (project_id, audio_filename, status) "
+        "VALUES (%s, %s, 'pending') RETURNING id",
+        (project_id, filename)
     ).fetchone()
-
-    created = 0
-    for candidate in candidates:
-        values = coerce_parsed_event(candidate)
-        if values is None:            # unusable date -- drop it rather than guess
-            continue
-        db.execute(
-            """INSERT INTO events (project_id, title, notes, event_date, event_time,
-                                   category, status, source, voice_note_id)
-               VALUES (%s, %s, %s, %s, %s, %s, 'draft', 'voice', %s)""",
-            (project_id, values['title'], values['notes'], values['event_date'],
-             values['event_time'], values['category'], note['id'])
-        )
-        created += 1
     db.commit()
 
-    if created:
-        flash('Added %d draft reminder%s from your memo. Check them below.'
-              % (created, '' if created == 1 else 's'))
-    else:
-        flash('Heard: "%s" -- but nothing in it looked like a reminder.' % transcript)
-    return redirect(url_for('project_detail', project_id=project_id))
+    # 202: accepted, not finished.
+    return jsonify(note_id=note['id'], status='pending'), 202
+
+
+@app.route('/projects/<int:project_id>/voice/status')
+@login_required
+def voice_status(project_id):
+    """How much of this job's audio is still being worked on."""
+    owned_project(project_id)
+    row = get_db().execute(
+        """SELECT count(*) FILTER (WHERE status IN ('pending', 'processing')) AS working,
+                  count(*) FILTER (WHERE status = 'done'
+                                     AND processed_at > now() - interval '2 minutes') AS just_done
+             FROM voice_notes WHERE project_id = %s""",
+        (project_id,)
+    ).fetchone()
+    return jsonify(working=row['working'], just_done=row['just_done'])
+
+
+@app.route('/voice-notes/<int:note_id>/dismiss', methods=['POST'])
+@login_required
+def dismiss_note(note_id):
+    """Clear a failed memo the contractor has read and does not want to retry."""
+    db = get_db()
+    note = db.execute(
+        'SELECT v.id, v.project_id FROM voice_notes v JOIN projects p ON p.id = v.project_id '
+        'WHERE v.id = %s AND p.user_id = %s', (note_id, session['user_id'])
+    ).fetchone()
+    if note is None:
+        abort(404)
+    db.execute("UPDATE voice_notes SET status = 'dismissed' WHERE id = %s", (note_id,))
+    db.commit()
+    return redirect(url_for('project_detail', project_id=note['project_id']))
+
+
+@app.route('/voice-notes/<int:note_id>/retry', methods=['POST'])
+@login_required
+def retry_note(note_id):
+    db = get_db()
+    note = db.execute(
+        'SELECT v.id, v.project_id FROM voice_notes v JOIN projects p ON p.id = v.project_id '
+        'WHERE v.id = %s AND p.user_id = %s', (note_id, session['user_id'])
+    ).fetchone()
+    if note is None:
+        abort(404)
+    db.execute("UPDATE voice_notes SET status = 'pending', attempts = 0, error = NULL "
+               'WHERE id = %s', (note_id,))
+    db.commit()
+    flash('Trying that memo again.')
+    return redirect(url_for('project_detail', project_id=note['project_id']))
 
 
 if __name__ == '__main__':

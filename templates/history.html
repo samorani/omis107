@@ -1,0 +1,100 @@
+{% extends "app_base.html" %}
+
+{% block title %}History{% endblock %}
+
+{% block content %}
+<p class="crumb">
+    {% if project %}
+        <a href="{{ url_for('project_detail', project_id=project.id) }}">&larr; {{ project.name }}</a>
+    {% else %}
+        <a href="{{ url_for('home') }}">&larr; All jobs</a>
+    {% endif %}
+</p>
+
+<div class="page-head">
+    <div>
+        <h1>History{% if project %} &mdash; {{ project.name }}{% endif %}</h1>
+        <p class="subtitle">
+            Everything scheduled, newest first &mdash; including what you have already checked off.
+        </p>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="filters">
+        {% set base = url_for('history', project_id=project.id) if project else url_for('history') %}
+        <a class="filter{% if show == 'all' %} is-on{% endif %}" href="{{ base }}">Everything</a>
+        <a class="filter{% if show == 'done' %} is-on{% endif %}" href="{{ base }}?show=done">Completed</a>
+        <a class="filter{% if show == 'missed' %} is-on{% endif %}" href="{{ base }}?show=missed">Past due, not done</a>
+    </div>
+
+    {% if events %}
+    <div class="table-wrap">
+        <table class="history">
+            <thead>
+                <tr>
+                    <th>Reminder</th>
+                    {% if not project %}<th>Job</th>{% endif %}
+                    <th>Kind</th>
+                    <th>Added</th>
+                    <th>Due</th>
+                    <th>Completed</th>
+                    <th><span class="sr-only">Action</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for event in events %}
+                <tr class="{% if event.done %}row-done{% elif event.event_date < today %}row-missed{% endif %}">
+                    <td>
+                        <a href="{{ url_for('edit_event', event_id=event.id) }}">{{ event.title }}</a>
+                        {% if event.source == 'voice' %}<span class="mini-tag">voice</span>{% endif %}
+                        {% if event.notes %}<span class="row-notes">{{ event.notes }}</span>{% endif %}
+                    </td>
+                    {% if not project %}<td class="col-quiet">{{ event.project_name }}</td>{% endif %}
+                    <td><span class="tag cat-{{ event.category|lower }}">{{ event.category }}</span></td>
+                    <td class="col-quiet">{{ event.created_at|pretty_stamp }}</td>
+                    <td>
+                        {{ event.event_date|pretty_stamp }}
+                        {%- if event.event_time %}<span class="row-notes">{{ event.event_time|pretty_time }}</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if event.done %}
+                            {% if event.completed_at %}
+                                <span class="stamp-done">{{ event.completed_at|pretty_stamp }}</span>
+                            {% else %}
+                                <span class="stamp-done">Done</span>
+                            {% endif %}
+                        {% elif event.event_date < today %}
+                            <span class="stamp-missed">Still open</span>
+                        {% else %}
+                            <span class="col-quiet">&mdash;</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {# The only place a finished item can be reopened -- everywhere
+                           else filters completed reminders out entirely. #}
+                        <form method="POST" action="{{ url_for('toggle_event', event_id=event.id) }}">
+                            <input type="hidden" name="next" value="history">
+                            <input type="hidden" name="show" value="{{ show }}">
+                            {% if project %}<input type="hidden" name="project_id" value="{{ project.id }}">{% endif %}
+                            <button type="submit" class="done-btn{% if event.done %} is-done{% endif %}">
+                                <span class="done-box">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"
+                                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                </span>
+                                <span class="done-text">{{ 'Done' if event.done else 'Mark done' }}</span>
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="empty">Nothing here yet.</p>
+    {% endif %}
+</section>
+{% endblock %}

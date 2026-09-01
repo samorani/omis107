@@ -1,24 +1,31 @@
 {% macro event_row(event, show_project=False, back='') %}
 <li class="event-row{% if event.done %} is-done{% endif %}">
-    <form method="POST" action="{{ url_for('toggle_event', event_id=event.id) }}">
-        {% if back %}<input type="hidden" name="next" value="{{ back }}">{% endif %}
-        <button type="submit" class="check" title="Mark as taken care of"
-                aria-label="Mark &quot;{{ event.title }}&quot; as taken care of">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
-                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
-        </button>
-    </form>
-
     <a class="event-main" href="{{ url_for('edit_event', event_id=event.id) }}">
         <span class="event-when">
             {{ event.event_date|pretty_date }}{% if event.event_time %} &middot; {{ event.event_time|pretty_time }}{% endif %}
         </span>
         <span class="event-title">{{ event.title }}</span>
         {% if show_project %}<span class="event-project">{{ event.project_name }}</span>{% endif %}
+        {% if event.done and event.completed_at %}
+            <span class="event-completed">Finished {{ event.completed_at|pretty_stamp }}</span>
+        {% endif %}
     </a>
 
     <span class="tag cat-{{ event.category|lower }}">{{ event.category }}</span>
+
+    {# A labelled button, not a bare circle: the contractor should never have to
+       guess what the control does or whether it already fired. #}
+    <form method="POST" action="{{ url_for('toggle_event', event_id=event.id) }}">
+        {% if back %}<input type="hidden" name="next" value="{{ back }}">{% endif %}
+        <button type="submit" class="done-btn{% if event.done %} is-done{% endif %}">
+            <span class="done-box">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+            </span>
+            <span class="done-text">{{ 'Done' if event.done else 'Mark done' }}</span>
+        </button>
+    </form>
 </li>
 {% endmacro %}

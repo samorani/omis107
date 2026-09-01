@@ -13,6 +13,15 @@
     <a class="btn btn-primary" href="{{ url_for('new_project') }}">+ New job</a>
 </div>
 
+{% if working %}
+<section class="panel panel-record">
+    <p class="working-note">
+        Still working on {{ working }} voice memo{{ '' if working == 1 else 's' }}.
+        Refresh in a moment &mdash; the drafts will show up here.
+    </p>
+</section>
+{% endif %}
+
 {% if drafts %}
 <section class="panel panel-draft">
     <h2>Needs your OK &mdash; {{ drafts|length }} from your memos</h2>

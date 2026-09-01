@@ -18,6 +18,7 @@
         </p>
     </div>
     <div class="head-actions">
+        <a class="btn" href="{{ url_for('history', project_id=project.id) }}">History</a>
         <a class="btn" href="{{ url_for('edit_project', project_id=project.id) }}">Edit job</a>
         <a class="btn btn-primary" href="{{ url_for('new_event', project_id=project.id) }}">+ New reminder</a>
     </div>
@@ -26,7 +27,9 @@
 <section class="panel panel-record">
     <div class="record-box">
         <form id="record-form" method="POST" enctype="multipart/form-data"
-              action="{{ url_for('voice_memo', project_id=project.id) }}">
+              action="{{ url_for('voice_memo', project_id=project.id) }}"
+              data-status-url="{{ url_for('voice_status', project_id=project.id) }}"
+              data-working="{{ working }}">
             <button type="button" id="record-btn" class="record-btn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -39,9 +42,16 @@
         </form>
         <div class="record-copy">
             <p id="record-status">Say what's happening and when. One memo can hold several things.</p>
+            <p id="record-queue" class="record-queue"{% if not working %} hidden{% endif %}>
+                {% if working %}
+                    Working on {{ working }} memo{{ '' if working == 1 else 's' }} in the background.
+                    You can keep going or close this page.
+                {% endif %}
+            </p>
             <p class="record-hint">
-                Everything you record becomes a draft you confirm later &mdash; nothing lands on
-                the calendar on its own.
+                Stopping is instant &mdash; the memo is processed in the background, so you can
+                record another right away or close the page. Everything becomes a draft you
+                confirm later; nothing lands on the calendar on its own.
                 {% if ai_provider == 'stub' %}
                     <strong>Demo mode:</strong> no AI key is set, so this returns a canned example.
                 {% endif %}
@@ -49,6 +59,35 @@
         </div>
     </div>
 </section>
+
+{% if problems %}
+<section class="panel panel-warn">
+    <h2>Memos that need a look</h2>
+    <ul class="problem-list">
+        {% for note in problems %}
+        <li class="problem-row">
+            <div>
+                <p class="problem-msg">{{ note.error }}</p>
+                {% if note.transcript %}
+                    <p class="draft-heard"><span>You said:</span> &ldquo;{{ note.transcript }}&rdquo;</p>
+                {% endif %}
+                <p class="row-notes">Recorded {{ note.created_at|pretty_stamp }}</p>
+            </div>
+            <div class="problem-actions">
+                {% if note.status == 'failed' %}
+                <form method="POST" action="{{ url_for('retry_note', note_id=note.id) }}">
+                    <button type="submit" class="btn btn-small">Try again</button>
+                </form>
+                {% endif %}
+                <form method="POST" action="{{ url_for('dismiss_note', note_id=note.id) }}">
+                    <button type="submit" class="btn btn-small btn-quiet">Dismiss</button>
+                </form>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
 
 {% if drafts %}
 <section class="panel panel-draft">
