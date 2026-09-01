@@ -41,21 +41,10 @@
             </button>
         </form>
         <div class="record-copy">
-            <p id="record-status">Say what's happening and when. One memo can hold several things.</p>
-            <p id="record-queue" class="record-queue"{% if not working %} hidden{% endif %}>
-                {% if working %}
-                    Working on {{ working }} memo{{ '' if working == 1 else 's' }} in the background.
-                    You can keep going or close this page.
-                {% endif %}
-            </p>
-            <p class="record-hint">
-                Stopping is instant &mdash; the memo is processed in the background, so you can
-                record another right away or close the page. Everything becomes a draft you
-                confirm later; nothing lands on the calendar on its own.
-                {% if ai_provider == 'stub' %}
-                    <strong>Demo mode:</strong> no AI key is set, so this returns a canned example.
-                {% endif %}
-            </p>
+            <p id="record-status" class="record-status"></p>
+            {% if ai_provider == 'stub' %}
+                <p class="record-demo">Demo mode &mdash; no AI key set.</p>
+            {% endif %}
         </div>
     </div>
 </section>

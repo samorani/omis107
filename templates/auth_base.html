@@ -4,6 +4,8 @@
 
 {% block body %}
 <main class="card">
+    <img class="auth-logo" src="{{ url_for('static', filename='img/logo.png') }}"
+         alt="Jobsite - contractor reminders, simplified">
     {% for message in get_flashed_messages() %}
         <div class="alert">{{ message }}</div>
     {% endfor %}

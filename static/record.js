@@ -6,16 +6,15 @@
 // deployed.
 //
 // Uploads are fire-and-forget. The server stores the audio, queues it, and
-// answers 202 immediately, so stopping a recording is instant. You can start
-// another one straight away, or close the tab -- the work carries on without
-// the browser, and the drafts are waiting at next login.
+// answers 202 immediately, so stopping a recording is instant. Progress is
+// deliberately not narrated in the UI: the page polls quietly and reloads when
+// the drafts are ready.
 document.addEventListener('DOMContentLoaded', function () {
     var button = document.getElementById('record-btn');
     if (!button) return;
 
     var status = document.getElementById('record-status');
     var form = document.getElementById('record-form');
-    var queue = document.getElementById('record-queue');
     var label = button.querySelector('.record-label');
 
     if (!(navigator.mediaDevices && window.MediaRecorder)) {
@@ -33,18 +32,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function say(message) {
         if (status) status.textContent = message;
-    }
-
-    function showQueue() {
-        if (!queue) return;
-        if (inFlight > 0) {
-            queue.hidden = false;
-            queue.textContent = inFlight === 1
-                ? 'Working on 1 memo in the background. You can keep going or close this page.'
-                : 'Working on ' + inFlight + ' memos in the background. You can keep going or close this page.';
-        } else {
-            queue.hidden = true;
-        }
     }
 
     function pickMimeType() {
@@ -119,7 +106,6 @@ document.addEventListener('DOMContentLoaded', function () {
         data.append('audio', blob, 'memo.' + extension);
 
         inFlight += 1;
-        showQueue();
 
         fetch(form.action, {method: 'POST', body: data})
             .then(function (response) {
@@ -128,7 +114,6 @@ document.addEventListener('DOMContentLoaded', function () {
             })
             .catch(function () {
                 inFlight = Math.max(0, inFlight - 1);
-                showQueue();
                 say('That one did not upload. Check your connection and try again.');
             });
     }
@@ -143,7 +128,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 .then(function (r) { return r.json(); })
                 .then(function (state) {
                     inFlight = state.working;
-                    showQueue();
                     if (state.working === 0) {
                         clearInterval(poller);
                         poller = null;
@@ -167,10 +151,9 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     // A memo queued before this page loaded (or by another device) is still
-    // being worked on -- pick the polling back up.
+    // being worked on -- pick the polling back up, silently.
     if (form.dataset.working && parseInt(form.dataset.working, 10) > 0) {
         inFlight = parseInt(form.dataset.working, 10);
-        showQueue();
         startPolling();
     }
 });

@@ -3,7 +3,10 @@
 {% block body %}
 <header class="topbar">
     <div class="topbar-inner">
-        <a class="brand" href="{{ url_for('home') }}">Jobsite</a>
+        <a class="brand" href="{{ url_for('home') }}">
+            <img src="{{ url_for('static', filename='img/logo-mark.png') }}" alt="">
+            <span>Jobsite</span>
+        </a>
         <div class="topbar-right">
             <a class="topbar-link" href="{{ url_for('history') }}">History</a>
             <span class="who">{{ session['username'] }}</span>
