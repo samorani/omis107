@@ -1067,3 +1067,114 @@ table.history td:nth-child(n+3) {
 .record-alt a:hover {
     color: var(--accent);
 }
+
+/* ------------------------------------------------- Mark done button --- */
+
+.done-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    padding: 8px 15px 8px 9px;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    color: var(--muted);
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s, border-color 0.15s, transform 0.1s;
+}
+
+.done-btn:hover {
+    color: #15803d;
+    background: #f2fbf5;
+    border-color: #bbe7c8;
+}
+
+.done-btn:active {
+    transform: scale(0.96);
+}
+
+.done-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* An empty ring at rest: something to aim at, and plainly not ticked yet. */
+.done-box {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    color: currentColor;
+    background: transparent;
+    border: 2px solid var(--border);
+    border-radius: 50%;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.done-btn:hover .done-box {
+    border-color: #bbe7c8;
+}
+
+.done-box svg {
+    width: 14px;
+    height: 14px;
+    /* The check is drawn rather than shown: the stroke is hidden behind a dash
+       offset that animates to zero, so the tick writes itself in. */
+    stroke-dasharray: 26;
+    stroke-dashoffset: 26;
+    opacity: 0;
+    transition: stroke-dashoffset 0.3s ease-out, opacity 0.15s;
+}
+
+.done-btn:hover .done-box svg {
+    stroke-dashoffset: 0;
+    opacity: 0.4;
+}
+
+/* Mid-request, and for anything already finished: filled, ticked, green. */
+.done-btn.is-checking,
+.done-btn.is-done {
+    color: #15803d;
+    background: #eefaf1;
+    border-color: #bbe7c8;
+}
+
+.done-btn.is-checking .done-box,
+.done-btn.is-done .done-box {
+    background: var(--cat-payment);
+    border-color: var(--cat-payment);
+}
+
+.done-btn.is-checking .done-box svg,
+.done-btn.is-done .done-box svg {
+    color: #fff;
+    opacity: 1;
+    stroke-dashoffset: 0;
+}
+
+/* A small pop as it ticks, so the tap is unmistakably registered. */
+.done-btn.is-checking .done-box {
+    animation: done-pop 0.32s ease-out;
+}
+
+@keyframes done-pop {
+    40% { transform: scale(1.18); }
+}
+
+/* Reopening a finished item is a real action, so say so rather than silently
+   un-ticking it. */
+.done-btn.is-done:hover .done-text {
+    text-decoration: line-through;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .done-box svg { transition: none; }
+    .done-btn.is-checking .done-box { animation: none; }
+    .done-btn:active { transform: none; }
+}
