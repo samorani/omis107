@@ -595,6 +595,7 @@ def home():
     ).fetchall()
 
     return render_template('home.html', projects=projects, drafts=drafts,
+                           example_job=projects[0]['name'],
                            drafts_token=drafts_token(drafts),
                            overdue=overdue, upcoming=upcoming, problems=problems, horizon=horizon, horizons=HORIZONS,
                            beyond=beyond, ai_provider=ai.provider_name())
@@ -719,6 +720,7 @@ def project_detail(project_id):
         upcoming=upcoming,
         drafts=drafts,
         drafts_token=drafts_token(drafts),
+        example_job=project['name'],
         projects=user_projects(),
         problems=problems,
         ai_provider=ai.provider_name(),

@@ -19,10 +19,13 @@
                     <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
                     <line x1="12" y1="19" x2="12" y2="23"></line>
                 </svg>
-                <span class="record-label">Record a memo</span>
+                <span class="record-label">Record a reminder</span>
             </button>
         </form>
         <div class="record-copy">
+            <p class="record-how">Say <b>which job</b>, <b>what needs doing</b>, and <b>when</b>.</p>
+            <p class="record-example">&ldquo;For the {{ example_job }} job, I need to meet
+                the electrician on Tuesday&rdquo;</p>
             <p id="record-status" class="record-status"></p>
             <p id="record-queue" class="record-queue" hidden></p>
             {% if ai_provider == 'stub' %}

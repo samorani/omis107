@@ -32,6 +32,8 @@ document.addEventListener('DOMContentLoaded', function () {
     var timer = null;
     var startedAt = 0;
     var uploading = false;      // a memo is with the server right now
+    var RECOVER_EVERY = 2500;   // how often to ask after a lost connection
+    var RECOVER_TRIES = 12;     // ~30s, longer than a memo normally takes
 
     function say(message) {
         if (status) status.textContent = message || '';
@@ -143,7 +145,11 @@ document.addEventListener('DOMContentLoaded', function () {
                     .then(function (body) { return {ok: response.ok, body: body}; });
             })
             .then(function (result) {
-                if (!result.ok) throw new Error(result.body.error || 'That one did not go through.');
+                if (!result.ok) {
+                    var refused = new Error(result.body.error || 'That one did not go through.');
+                    refused.fromServer = true;      // the server answered, and said no
+                    throw refused;
+                }
                 return refreshDrafts(result.body.drafts).then(function () {
                     idle();
                     say(result.body.created
@@ -154,8 +160,66 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
             })
             .catch(function (err) {
+                if (err && err.fromServer) {
+                    idle();
+                    say(err.message);
+                    return;
+                }
+                // The request never came back -- a locked screen, a handover from
+                // wifi to cellular, a proxy giving up. That says nothing about
+                // whether the memo was written up: the server commits the drafts
+                // before it answers. So ask, rather than crying failure.
+                recoverUnknownOutcome();
+            });
+    }
+
+    // We do not know whether the memo landed. Find out.
+    function recoverUnknownOutcome(attempt) {
+        attempt = attempt || 1;
+
+        if (!form.dataset.statusUrl) {
+            idle();
+            say('Lost connection. Your memo may still be going through - check back in a moment.');
+            return;
+        }
+
+        working('Checking whether that went through…');
+
+        fetch(form.dataset.statusUrl, {headers: {'Accept': 'application/json'},
+                                       credentials: 'same-origin', cache: 'no-store'})
+            .then(function (r) {
+                if (!r.ok) throw new Error('status ' + r.status);
+                return r.json();
+            })
+            .then(function (state) {
+                if (slot && state.drafts && state.drafts !== slot.dataset.token) {
+                    // It landed after all. Nothing went wrong as far as the
+                    // contractor is concerned, so do not mention an error.
+                    refreshDrafts(state.drafts).then(function () {
+                        idle();
+                        say('Saved. Your memo was written up.');
+                    });
+                    return;
+                }
+
+                if (state.processing > 0 && attempt < RECOVER_TRIES) {
+                    working('Still writing it up…');
+                    setTimeout(function () { recoverUnknownOutcome(attempt + 1); }, RECOVER_EVERY);
+                    return;
+                }
+
+                // Nothing new and nothing running: it genuinely did not make it,
+                // or it produced nothing. Reload so the reason is on screen.
                 idle();
-                say(err.message || 'That one did not go through. Try again.');
+                window.location.reload();
+            })
+            .catch(function () {
+                if (attempt < RECOVER_TRIES) {
+                    setTimeout(function () { recoverUnknownOutcome(attempt + 1); }, RECOVER_EVERY);
+                    return;
+                }
+                idle();
+                say('Lost connection. Your memo may still be going through - check back in a moment.');
             });
     }
 

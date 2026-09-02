@@ -1178,3 +1178,59 @@ table.history td:nth-child(n+3) {
     .done-btn.is-checking .done-box { animation: none; }
     .done-btn:active { transform: none; }
 }
+
+/* ------------------------------------------- Telling them what to say --- */
+
+/* "Record a memo" meant nothing on its own. One line of instruction and one
+   real example -- naming one of their own jobs, so it reads as a template
+   rather than as decoration. */
+.record-how {
+    margin: 0;
+    font-size: 15px;
+    color: var(--text);
+}
+
+.record-how b {
+    font-weight: 700;
+}
+
+.record-example {
+    margin: 5px 0 0;
+    font-size: 14.5px;
+    font-style: italic;
+    color: var(--muted);
+    border-left: 3px solid var(--gold-line);
+    padding-left: 10px;
+}
+
+.record-status:not(:empty),
+.record-queue:not([hidden]) {
+    margin-top: 10px;
+}
+
+/* --------------------------------------- Event rows on a narrow screen --- */
+
+/* On a phone the date, the reminder and the button cannot share one line
+   without the text being squeezed to a column of single words. Let the button
+   drop to its own line instead, still right-aligned. */
+@media (max-width: 620px) {
+    .event-row {
+        flex-wrap: wrap;
+        align-items: flex-start;
+    }
+
+    .event-row > form {
+        flex: 1 0 100%;
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 2px;
+    }
+
+    .event-date {
+        flex-basis: 62px;
+    }
+
+    .event-day {
+        font-size: 19px;
+    }
+}
