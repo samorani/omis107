@@ -7,8 +7,9 @@
 //
 // Uploads are fire-and-forget. The server stores the audio, queues it, and
 // answers 202 immediately, so stopping a recording is instant. A one-line
-// "writing up" note shows while memos are still being processed; the page polls
-// and reloads itself once the drafts are ready.
+// "writing up" note shows while memos are still being processed; the page
+// re-checks and reloads itself once the drafts are ready -- including when the
+// phone has been asleep in the meantime.
 document.addEventListener('DOMContentLoaded', function () {
     var button = document.getElementById('record-btn');
     if (!button) return;
@@ -135,30 +136,87 @@ document.addEventListener('DOMContentLoaded', function () {
             });
     }
 
-    // Ask the server how many memos are still being worked on. When the queue
-    // empties, reload so the new drafts appear. Purely a convenience -- the
-    // drafts are saved whether or not this page is still open.
-    function startPolling() {
-        if (poller) return;
-        poller = setInterval(function () {
-            fetch(form.dataset.statusUrl, {headers: {'Accept': 'application/json'}})
-                .then(function (r) { return r.json(); })
-                .then(function (state) {
-                    inFlight = state.working;
-                    showQueue();
-                    if (state.working === 0) {
-                        clearInterval(poller);
-                        poller = null;
-                        if (recorder && recorder.state === 'recording') return;
-                        window.location.reload();
-                    }
-                })
-                .catch(function () {
-                    clearInterval(poller);
-                    poller = null;
-                });
-        }, 2500);
+    // --- keeping the page in step with the server ------------------------
+    //
+    // Two things make this harder than a plain setInterval. Phones throttle or
+    // suspend background timers the moment the screen locks, and returning to
+    // the page may restore a frozen snapshot from the back/forward cache. So
+    // the interval is only the slow path: the real trigger is the user coming
+    // back, which we catch with visibilitychange and pageshow.
+    var BASE_DELAY = 2500;
+    var MAX_DELAY = 30000;
+    var delay = BASE_DELAY;
+    var sawWork = false;          // has anything been queued this page view?
+    var checking = false;
+
+    function scheduleNext() {
+        clearTimeout(poller);
+        if (document.hidden) return;      // no point burning battery in the background
+        poller = setTimeout(check, delay);
     }
+
+    function startPolling() {
+        sawWork = true;
+        delay = BASE_DELAY;
+        scheduleNext();
+    }
+
+    // One status check. Never leaves the page unable to poll again: a failure
+    // backs off and retries rather than switching polling off for good.
+    function check(immediate) {
+        if (checking) return;
+        checking = true;
+        clearTimeout(poller);
+
+        fetch(form.dataset.statusUrl, {headers: {'Accept': 'application/json'},
+                                       cache: 'no-store'})
+            .then(function (r) {
+                if (!r.ok) throw new Error('status ' + r.status);
+                return r.json();
+            })
+            .then(function (state) {
+                checking = false;
+                delay = BASE_DELAY;
+                inFlight = state.working;
+                showQueue();
+
+                if (state.working > 0) {
+                    sawWork = true;
+                    scheduleNext();
+                    return;
+                }
+                // Queue drained. Reload so the new drafts appear -- but only if
+                // something was actually queued, and never mid-recording.
+                if (sawWork && !(recorder && recorder.state === 'recording')) {
+                    window.location.reload();
+                }
+            })
+            .catch(function () {
+                checking = false;
+                delay = Math.min(delay * 2, MAX_DELAY);
+                scheduleNext();
+            });
+    }
+
+    // The user coming back is the signal that matters: check straight away
+    // rather than waiting for a timer the phone may have frozen.
+    document.addEventListener('visibilitychange', function () {
+        if (document.hidden) {
+            clearTimeout(poller);
+        } else if (sawWork) {
+            delay = BASE_DELAY;
+            check();
+        }
+    });
+
+    // Fires on a normal load and on a back/forward-cache restore, where the
+    // page is a frozen snapshot and every timer missed its turn.
+    window.addEventListener('pageshow', function (event) {
+        if (event.persisted && sawWork) {
+            delay = BASE_DELAY;
+            check();
+        }
+    });
 
     button.addEventListener('click', function () {
         if (recorder && recorder.state === 'recording') {
@@ -168,8 +226,8 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
-    // A memo queued before this page loaded (or by another device) is still
-    // being worked on -- pick the polling back up, silently.
+    // A memo queued before this page loaded (or on another device) is still
+    // being written up -- pick the loop back up.
     if (form.dataset.working && parseInt(form.dataset.working, 10) > 0) {
         inFlight = parseInt(form.dataset.working, 10);
         showQueue();

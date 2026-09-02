@@ -432,6 +432,24 @@ def home():
     """Record a memo, and see what is coming up across every job."""
     db = get_db()
     today = date.today()
+
+    projects = db.execute(
+        """SELECT p.*,
+                  (SELECT count(*) FROM events e
+                    WHERE e.project_id = p.id AND e.done = FALSE
+                      AND e.status = 'confirmed' AND e.event_date >= %s) AS open_count
+             FROM projects p
+            WHERE p.user_id = %s
+            ORDER BY p.name""",
+        (today, session['user_id'])
+    ).fetchall()
+
+    # Nothing works before there is a job to hang it on -- a reminder needs one,
+    # and so does a voice memo. So a new account gets one door, not a dashboard
+    # of empty panels.
+    if not projects:
+        return render_template('welcome.html')
+
     horizon = request.args.get('horizon', '2w')
     if horizon not in HORIZONS:
         horizon = '2w'
@@ -478,17 +496,6 @@ def home():
               AND e.event_date > %s""",
         (session['user_id'], today + timedelta(days=days) if days is not None else today)
     ).fetchone()['n'] if days is not None else 0
-
-    projects = db.execute(
-        """SELECT p.*,
-                  (SELECT count(*) FROM events e
-                    WHERE e.project_id = p.id AND e.done = FALSE
-                      AND e.status = 'confirmed' AND e.event_date >= %s) AS open_count
-             FROM projects p
-            WHERE p.user_id = %s
-            ORDER BY p.name""",
-        (today, session['user_id'])
-    ).fetchall()
 
     working = db.execute(
         "SELECT count(*) AS n FROM voice_notes "

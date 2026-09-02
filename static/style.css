@@ -1086,3 +1086,35 @@ table.history td:nth-child(n+3) {
 .draft-row > .draft-body {
     flex: 1 1 100%;
 }
+
+/* ----------------------------------------------------------- Welcome --- */
+
+/* A brand-new account has no jobs, so it gets one door and nothing else --
+   an empty record button and three empty lists would only be noise. */
+.welcome {
+    max-width: 420px;
+    margin: 40px auto;
+    padding: 36px 28px;
+    text-align: center;
+}
+
+.welcome-logo {
+    width: 76px;
+    height: 76px;
+    margin-bottom: 18px;
+}
+
+.welcome h1 {
+    margin-bottom: 8px;
+    font-size: 24px;
+}
+
+.welcome p {
+    margin: 0 0 24px;
+    color: var(--muted);
+}
+
+.btn-big {
+    padding: 14px 26px;
+    font-size: 16px;
+}

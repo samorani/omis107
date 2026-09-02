@@ -1,0 +1,12 @@
+{% extends "app_base.html" %}
+
+{% block title %}Get started{% endblock %}
+
+{% block content %}
+<section class="panel welcome">
+    <img class="welcome-logo" src="{{ url_for('static', filename='img/logo-mark.png') }}" alt="">
+    <h1>Start your first job</h1>
+    <p>One job per client. Everything else hangs off it.</p>
+    <a class="btn btn-primary btn-big" href="{{ url_for('new_project') }}">+ New job</a>
+</section>
+{% endblock %}
