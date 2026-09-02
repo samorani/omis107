@@ -43,6 +43,11 @@ document.addEventListener('DOMContentLoaded', function () {
         queue.hidden = !message;
     }
 
+    function newToken() {
+        if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+        return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    }
+
     function pickMimeType() {
         // Chrome and Firefox give webm; Safari gives mp4. Both are accepted.
         var candidates = ['audio/webm', 'audio/mp4', 'audio/ogg'];
@@ -116,8 +121,13 @@ document.addEventListener('DOMContentLoaded', function () {
         var extension = (blob.type.indexOf('mp4') !== -1) ? 'm4a'
             : (blob.type.indexOf('ogg') !== -1) ? 'ogg' : 'webm';
 
+        // A one-off id for this recording. If the phone loses signal mid-upload
+        // the browser re-sends the identical body -- this id included -- and the
+        // server uses it to recognise the repeat instead of writing the memo up
+        // a second time.
         var data = new FormData();
         data.append('audio', blob, 'memo.' + extension);
+        data.append('client_token', newToken());
 
         // Locked until the server answers: one memo at a time.
         uploading = true;

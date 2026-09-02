@@ -115,6 +115,12 @@ def init_db():
         db.execute('ALTER TABLE voice_notes ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ')
         db.execute('ALTER TABLE voice_notes ALTER COLUMN transcript DROP NOT NULL')
         db.execute('CREATE INDEX IF NOT EXISTS voice_notes_status_idx ON voice_notes (status)')
+        # Each recording carries an id made by the browser. If the phone's
+        # connection drops mid-upload the browser re-sends the very same body,
+        # id included -- so this index is what stops one memo becoming two.
+        db.execute('ALTER TABLE voice_notes ADD COLUMN IF NOT EXISTS client_token TEXT')
+        db.execute('CREATE UNIQUE INDEX IF NOT EXISTS voice_notes_client_token_idx '
+                   'ON voice_notes (user_id, client_token) WHERE client_token IS NOT NULL')
 
         # A memo can now be recorded from the dashboard, before anyone has said
         # which job it belongs to -- so ownership lives on the row itself and the
@@ -260,6 +266,21 @@ def write_up_memo(note_id):
         (transcript, created, note_id))
     db.commit()
     return created
+
+
+def memo_outcome(note, project_id, duplicate=False):
+    """The answer the browser gets for a memo, whether fresh or a repeat."""
+    if note['status'] == 'failed':
+        return jsonify(error=note['error'] or 'That one did not go through.'), 502
+
+    created = get_db().execute(
+        'SELECT count(*) AS n FROM events WHERE voice_note_id = %s', (note['id'],)
+    ).fetchone()['n']
+
+    return jsonify(created=created,
+                   duplicate=duplicate,
+                   processing=note['status'] == 'processing',
+                   drafts=drafts_token(draft_rows(project_id)))
 
 
 def draft_rows(project_id=None):
@@ -911,6 +932,20 @@ def voice_memo(project_id=None):
     if project_id is not None:
         owned_project(project_id)
 
+    # The browser stamps every recording with an id and repeats it verbatim on
+    # a retry, so the same recording can never be written up twice.
+    token = (request.form.get('client_token') or '').strip()[:64] or None
+
+    db = get_db()
+    if token:
+        seen = db.execute(
+            'SELECT * FROM voice_notes WHERE user_id = %s AND client_token = %s',
+            (session['user_id'], token)
+        ).fetchone()
+        if seen is not None:
+            app.logger.info('ignoring repeat upload of memo %s', seen['id'])
+            return memo_outcome(seen, project_id, duplicate=True)
+
     upload = request.files.get('audio')
     if upload is None or not upload.filename:
         return jsonify(error='No recording was received.'), 400
@@ -920,13 +955,23 @@ def voice_memo(project_id=None):
     filename = '%s-%s%s' % (project_id or 'inbox', uuid.uuid4().hex, extension)
     upload.save(os.path.join(UPLOAD_DIR, filename))
 
-    db = get_db()
-    note = db.execute(
-        "INSERT INTO voice_notes (user_id, project_id, audio_filename, status) "
-        "VALUES (%s, %s, %s, 'processing') RETURNING id",
-        (session['user_id'], project_id, filename)
-    ).fetchone()
-    db.commit()
+    try:
+        note = db.execute(
+            "INSERT INTO voice_notes (user_id, project_id, audio_filename, status, client_token) "
+            "VALUES (%s, %s, %s, 'processing', %s) RETURNING id",
+            (session['user_id'], project_id, filename, token)
+        ).fetchone()
+        db.commit()
+    except psycopg.errors.UniqueViolation:
+        # Two copies of the same upload arrived close enough together to race.
+        db.rollback()
+        os.remove(os.path.join(UPLOAD_DIR, filename))
+        seen = db.execute(
+            'SELECT * FROM voice_notes WHERE user_id = %s AND client_token = %s',
+            (session['user_id'], token)
+        ).fetchone()
+        app.logger.info('dropped a racing duplicate of memo %s', seen['id'])
+        return memo_outcome(seen, project_id, duplicate=True)
 
     try:
         created = write_up_memo(note['id'])
