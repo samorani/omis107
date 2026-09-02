@@ -8,6 +8,9 @@
 // One memo at a time. The upload request does the whole job and only answers
 // once the drafts exist, so the button stays locked until it comes back -- you
 // always know whether the last memo landed before starting the next.
+//
+// If the phone sleeps while a memo is with the server, the page is suspended
+// and that answer arrives at nobody. See the wake-up re-sync at the bottom.
 document.addEventListener('DOMContentLoaded', function () {
     var button = document.getElementById('record-btn');
     if (!button) return;
@@ -28,6 +31,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var chunks = [];
     var timer = null;
     var startedAt = 0;
+    var uploading = false;      // a memo is with the server right now
 
     function say(message) {
         if (status) status.textContent = message || '';
@@ -95,6 +99,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function idle() {
+        uploading = false;
         button.disabled = false;
         button.classList.remove('is-recording');
         label.textContent = 'Record a memo';
@@ -115,6 +120,7 @@ document.addEventListener('DOMContentLoaded', function () {
         data.append('audio', blob, 'memo.' + extension);
 
         // Locked until the server answers: one memo at a time.
+        uploading = true;
         button.disabled = true;
         label.textContent = 'Writing it up';
         say('');
@@ -163,6 +169,63 @@ document.addEventListener('DOMContentLoaded', function () {
                 window.location.reload();
             });
     }
+
+    // --- coming back to a page the phone put to sleep --------------------
+    //
+    // While the screen is off the page is suspended: no timers, no callbacks,
+    // and the answer to the upload arrives at a page that is not running to
+    // receive it. Nothing can be delivered to a sleeping page -- so on waking,
+    // the page asks the server what it missed. This is the same trick a webmail
+    // page uses when it reconnects, and it is why the drafts are already there
+    // by the time you have focused on the screen.
+    var GRACE_MS = 1500;
+
+    function resync() {
+        if (!form.dataset.statusUrl) return;
+
+        fetch(form.dataset.statusUrl, {headers: {'Accept': 'application/json'},
+                                       credentials: 'same-origin', cache: 'no-store'})
+            .then(function (r) {
+                if (!r.ok) throw new Error('status ' + r.status);
+                return r.json();
+            })
+            .then(function (state) {
+                var changed = slot && state.drafts && state.drafts !== slot.dataset.token;
+
+                if (changed) {
+                    refreshDrafts(state.drafts).then(function () {
+                        if (uploading) {
+                            idle();
+                            say('Your memo was written up while the screen was off.');
+                        }
+                    });
+                    return;
+                }
+
+                // Nothing new and the server is no longer busy: either the memo
+                // produced nothing, or it failed. Both need the whole page --
+                // the failure notice lives outside the drafts panel. Give the
+                // original request a moment first, in case it is still landing.
+                if (uploading && state.processing === 0) {
+                    setTimeout(function () {
+                        if (uploading) window.location.reload();
+                    }, GRACE_MS);
+                }
+            })
+            .catch(function () {
+                /* offline on wake; the next wake will try again */
+            });
+    }
+
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) resync();
+    });
+
+    // Also fires when the page is restored from the back/forward cache, where
+    // it is a frozen snapshot that missed everything.
+    window.addEventListener('pageshow', function (event) {
+        if (event.persisted) resync();
+    });
 
     button.addEventListener('click', function () {
         if (button.disabled) return;

@@ -26,6 +26,7 @@
     <div class="record-box">
         <form id="record-form" method="POST" enctype="multipart/form-data"
               action="{{ url_for('voice_memo', project_id=project.id) }}"
+              data-status-url="{{ url_for('voice_status', project_id=project.id) }}"
 >
             <button type="button" id="record-btn" class="record-btn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"

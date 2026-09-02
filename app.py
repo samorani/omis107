@@ -942,6 +942,32 @@ def voice_memo(project_id=None):
                    drafts=drafts_token(draft_rows(project_id)))
 
 
+@app.route('/voice/status')
+@app.route('/projects/<int:project_id>/voice/status')
+@login_required
+def voice_status(project_id=None):
+    """What the page asks for when it wakes up: did I miss anything?
+
+    A phone suspends the page while the screen is off, so the answer to the
+    upload request can arrive at a page that is not running to receive it. On
+    waking, the page asks this instead of sitting there stale.
+    """
+    db = get_db()
+    if project_id is not None:
+        owned_project(project_id)
+        busy = db.execute(
+            "SELECT count(*) AS n FROM voice_notes "
+            "WHERE project_id = %s AND status = 'processing'", (project_id,)
+        ).fetchone()['n']
+    else:
+        busy = db.execute(
+            "SELECT count(*) AS n FROM voice_notes "
+            "WHERE user_id = %s AND status = 'processing'", (session['user_id'],)
+        ).fetchone()['n']
+
+    return jsonify(processing=busy, drafts=drafts_token(draft_rows(project_id)))
+
+
 @app.route('/fragments/drafts')
 @app.route('/projects/<int:project_id>/fragments/drafts')
 @login_required
