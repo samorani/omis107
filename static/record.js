@@ -6,15 +6,16 @@
 // deployed.
 //
 // Uploads are fire-and-forget. The server stores the audio, queues it, and
-// answers 202 immediately, so stopping a recording is instant. Progress is
-// deliberately not narrated in the UI: the page polls quietly and reloads when
-// the drafts are ready.
+// answers 202 immediately, so stopping a recording is instant. A one-line
+// "writing up" note shows while memos are still being processed; the page polls
+// and reloads itself once the drafts are ready.
 document.addEventListener('DOMContentLoaded', function () {
     var button = document.getElementById('record-btn');
     if (!button) return;
 
     var status = document.getElementById('record-status');
     var form = document.getElementById('record-form');
+    var queue = document.getElementById('record-queue');
     var label = button.querySelector('.record-label');
 
     if (!(navigator.mediaDevices && window.MediaRecorder)) {
@@ -32,6 +33,20 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function say(message) {
         if (status) status.textContent = message;
+    }
+
+    // "Writing it up" is what a foreman calls turning site notes into something
+    // written down -- which is exactly what is happening to the recording.
+    function showQueue() {
+        if (!queue) return;
+        if (inFlight > 0) {
+            queue.hidden = false;
+            queue.textContent = inFlight === 1
+                ? 'Writing up 1 memo…'
+                : 'Writing up ' + inFlight + ' memos…';
+        } else {
+            queue.hidden = true;
+        }
     }
 
     function pickMimeType() {
@@ -106,6 +121,7 @@ document.addEventListener('DOMContentLoaded', function () {
         data.append('audio', blob, 'memo.' + extension);
 
         inFlight += 1;
+        showQueue();
 
         fetch(form.action, {method: 'POST', body: data})
             .then(function (response) {
@@ -114,6 +130,7 @@ document.addEventListener('DOMContentLoaded', function () {
             })
             .catch(function () {
                 inFlight = Math.max(0, inFlight - 1);
+                showQueue();
                 say('That one did not upload. Check your connection and try again.');
             });
     }
@@ -128,6 +145,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 .then(function (r) { return r.json(); })
                 .then(function (state) {
                     inFlight = state.working;
+                    showQueue();
                     if (state.working === 0) {
                         clearInterval(poller);
                         poller = null;
@@ -154,6 +172,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // being worked on -- pick the polling back up, silently.
     if (form.dataset.working && parseInt(form.dataset.working, 10) > 0) {
         inFlight = parseInt(form.dataset.working, 10);
+        showQueue();
         startPolling();
     }
 });

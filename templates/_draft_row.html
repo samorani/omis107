@@ -1,30 +1,47 @@
-{% macro draft_row(event, show_project=False, back='') %}
-<li class="draft-row">
-    <div class="draft-head">
-        <span class="tag cat-{{ event.category|lower }}">{{ event.category }}</span>
-        <span class="draft-when">
-            {{ event.event_date|pretty_date }}{% if event.event_time %} &middot; {{ event.event_time|pretty_time }}{% endif %}
+{% macro draft_row(event, show_project=False, back='', projects=None) %}
+<li class="draft-row{% if not event.project_id %} needs-job{% endif %}">
+    <div class="draft-body">
+        <span class="event-date">
+            <span class="event-dow">{{ event.event_date|day_label }}</span>
+            <span class="event-day">{{ event.event_date|date_label }}</span>
+            {% if event.event_time %}<span class="event-time">{{ event.event_time|pretty_time }}</span>{% endif %}
         </span>
-        {% if show_project %}<span class="draft-project">{{ event.project_name }}</span>{% endif %}
+
+        <div class="draft-text">
+            <p class="draft-title">{{ event.title }}</p>
+            <p class="event-meta">
+                {% if event.project_name %}{{ event.project_name }} &middot; {% endif %}
+                <span class="dot cat-{{ event.category|lower }}"></span>{{ event.category }}
+            </p>
+            {% if event.notes %}<p class="draft-notes">{{ event.notes }}</p>{% endif %}
+            {% if event.transcript %}
+                <p class="draft-heard"><span>You said:</span> &ldquo;{{ event.transcript }}&rdquo;</p>
+            {% endif %}
+        </div>
     </div>
 
-    <p class="draft-title">{{ event.title }}</p>
-    {% if event.notes %}<p class="draft-notes">{{ event.notes }}</p>{% endif %}
+    <form class="draft-actions" method="POST" action="{{ url_for('confirm_event', event_id=event.id) }}">
+        {% if back %}<input type="hidden" name="next" value="{{ back }}">{% endif %}
 
-    {% if event.transcript %}
-        <p class="draft-heard"><span>You said:</span> &ldquo;{{ event.transcript }}&rdquo;</p>
-    {% endif %}
+        {# No job was picked out of the memo, so it has to be chosen before this
+           can go on the books. #}
+        {% if not event.project_id %}
+            <label class="sr-only" for="job-{{ event.id }}">Which job?</label>
+            <select id="job-{{ event.id }}" name="project_id" required>
+                <option value="">Which job?</option>
+                {% for project in projects or [] %}
+                    <option value="{{ project.id }}">{{ project.name }}</option>
+                {% endfor %}
+            </select>
+        {% endif %}
 
-    <div class="draft-actions">
-        <form method="POST" action="{{ url_for('confirm_event', event_id=event.id) }}">
-            {% if back %}<input type="hidden" name="next" value="{{ back }}">{% endif %}
-            <button type="submit" class="btn btn-primary btn-small">Looks right</button>
-        </form>
+        <button type="submit" class="btn btn-primary btn-small">Looks right</button>
         <a class="btn btn-small" href="{{ url_for('edit_event', event_id=event.id) }}">Fix it</a>
-        <form method="POST" action="{{ url_for('delete_event', event_id=event.id) }}"
-              onsubmit="return confirm('Throw this one away?');">
-            <button type="submit" class="btn btn-small btn-quiet">Discard</button>
-        </form>
-    </div>
+    </form>
+
+    <form method="POST" action="{{ url_for('delete_event', event_id=event.id) }}"
+          onsubmit="return confirm('Throw this one away?');">
+        <button type="submit" class="btn btn-small btn-quiet">Discard</button>
+    </form>
 </li>
 {% endmacro %}

@@ -42,6 +42,11 @@
         </form>
         <div class="record-copy">
             <p id="record-status" class="record-status"></p>
+            <p id="record-queue" class="record-queue"{% if not working %} hidden{% endif %}>
+                {%- if working -%}
+                    Writing up {{ working }} memo{{ '' if working == 1 else 's' }}&hellip;
+                {%- endif -%}
+            </p>
             {% if ai_provider == 'stub' %}
                 <p class="record-demo">Demo mode &mdash; no AI key set.</p>
             {% endif %}
@@ -89,53 +94,19 @@
 </section>
 {% endif %}
 
-{% if project.notes %}
-<section class="panel">
-    <h2>Job notes</h2>
-    <p class="notes">{{ project.notes }}</p>
+{% if overdue %}
+<section class="panel panel-warn">
+    <h2>Past due &mdash; check on these</h2>
+    <ul class="event-list">
+        {% for event in overdue %}
+            {{ event_row(event) }}
+        {% endfor %}
+    </ul>
 </section>
 {% endif %}
 
 <section class="panel">
-    <div class="cal-nav">
-        <a class="btn btn-icon" href="{{ url_for('project_detail', project_id=project.id, year=prev_month.year, month=prev_month.month) }}"
-           aria-label="Previous month">&larr;</a>
-        <h2>{{ month_names[anchor.month - 1] }} {{ anchor.year }}</h2>
-        <a class="btn btn-icon" href="{{ url_for('project_detail', project_id=project.id, year=next_month.year, month=next_month.month) }}"
-           aria-label="Next month">&rarr;</a>
-        <a class="btn btn-today" href="{{ url_for('project_detail', project_id=project.id) }}">Today</a>
-    </div>
-
-    <div class="cal">
-        <div class="cal-row cal-head">
-            {% for name in day_names %}<div class="cal-dow">{{ name }}</div>{% endfor %}
-        </div>
-        {% for week in weeks %}
-        <div class="cal-row">
-            {% for day in week %}
-            <div class="cal-cell{% if day.month != anchor.month %} is-outside{% endif %}{% if day == today %} is-today{% endif %}">
-                <div class="cal-daynum">
-                    <span>{{ day.day }}</span>
-                    <a class="cal-add" href="{{ url_for('new_event', project_id=project.id, date=day.isoformat()) }}"
-                       aria-label="Add a reminder on {{ month_names[day.month - 1] }} {{ day.day }}">+</a>
-                </div>
-                {% for event in events_by_day.get(day, []) %}
-                    <a class="chip cat-{{ event.category|lower }}{% if event.done %} is-done{% endif %}{% if event.status == 'draft' %} is-draft{% endif %}"
-                       href="{{ url_for('edit_event', event_id=event.id) }}"
-                       title="{{ event.title }}{% if event.event_time %} at {{ event.event_time|pretty_time }}{% endif %}">
-                        {%- if event.event_time %}<b>{{ event.event_time|pretty_time }}</b> {% endif -%}
-                        {{ event.title }}
-                    </a>
-                {% endfor %}
-            </div>
-            {% endfor %}
-        </div>
-        {% endfor %}
-    </div>
-</section>
-
-<section class="panel">
-    <h2>Still to come on this job</h2>
+    <h2>Coming up</h2>
     {% if upcoming %}
         <ul class="event-list">
             {% for event in upcoming %}
@@ -145,10 +116,18 @@
     {% else %}
         <p class="empty">
             Nothing scheduled.
-            <a href="{{ url_for('new_event', project_id=project.id) }}">Add a reminder</a>.
+            <a href="{{ url_for('new_event', project_id=project.id) }}">Add a reminder</a>
+            or record a memo.
         </p>
     {% endif %}
 </section>
+
+{% if project.notes %}
+<section class="panel">
+    <h2>Job notes</h2>
+    <p class="notes">{{ project.notes }}</p>
+</section>
+{% endif %}
 
 <section class="panel panel-danger">
     <h2>Delete this job</h2>

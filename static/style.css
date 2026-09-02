@@ -464,10 +464,9 @@ a:hover {
 
 .event-row {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
-    padding: 10px 0;
+    gap: 14px;
+    padding: 12px 0;
     border-top: 1px solid var(--border);
 }
 
@@ -475,68 +474,35 @@ a:hover {
     border-top: none;
 }
 
-.done-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
-    padding: 8px 14px 8px 10px;
-    font-size: 14px;
+/* The date block: fixed width so every row lines up into a column the eye can
+   run down, and large enough to read at arm's length. */
+.event-date {
+    flex: 0 0 78px;
+    text-align: center;
+    line-height: 1.15;
+}
+
+.event-dow {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.event-day {
+    display: block;
+    font-size: 21px;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+.event-time {
+    display: block;
+    font-size: 12.5px;
     font-weight: 600;
-    font-family: inherit;
-    color: var(--text);
-    background: #f3f4f8;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-
-.done-btn:hover {
-    color: var(--cat-payment);
-    background: #eefaf1;
-    border-color: var(--cat-payment);
-}
-
-/* The tick is always drawn, just empty until the item is finished -- an outline
-   the contractor can aim at, rather than a control that appears on hover. */
-.done-box {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    color: transparent;
-    background: #fff;
-    border: 2px solid var(--border);
-    border-radius: 50%;
-}
-
-.done-box svg {
-    width: 13px;
-    height: 13px;
-}
-
-.done-btn:hover .done-box {
-    color: var(--cat-payment);
-    border-color: var(--cat-payment);
-}
-
-.done-btn.is-done {
-    color: #15803d;
-    background: #eefaf1;
-    border-color: #bbe7c8;
-}
-
-.done-btn.is-done .done-box {
-    color: #fff;
-    background: var(--cat-payment);
-    border-color: var(--cat-payment);
-}
-
-/* Reopening is a real action, so say so instead of silently un-ticking. */
-.done-btn.is-done:hover .done-text {
-    text-decoration: line-through;
+    color: var(--muted);
 }
 
 .event-main {
@@ -551,24 +517,28 @@ a:hover {
     text-decoration: underline;
 }
 
-.event-when {
-    display: block;
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.02em;
-}
-
 .event-title {
     display: block;
-    font-size: 16px;
+    font-size: 16.5px;
+    font-weight: 600;
 }
 
-.event-project {
+.event-meta {
     display: block;
-    font-size: 14px;
+    margin: 2px 0 0;
+    font-size: 13.5px;
     color: var(--muted);
+}
+
+/* Category shows as a small dot rather than a coloured pill -- the date is the
+   loud thing in the row now, and two loud things is none. */
+.dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 5px;
+    border-radius: 50%;
+    vertical-align: baseline;
 }
 
 .is-done .event-title {
@@ -576,7 +546,16 @@ a:hover {
     text-decoration: line-through;
 }
 
+.is-done .event-day {
+    color: var(--muted);
+}
+
+.panel-warn .event-day {
+    color: #9a3412;
+}
+
 .tag {
+    display: inline-block;
     flex-shrink: 0;
     padding: 3px 10px;
     font-size: 12px;
@@ -586,127 +565,7 @@ a:hover {
     white-space: nowrap;
 }
 
-/* ---------------------------------------------------------- Calendar --- */
-
-.cal-nav {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 14px;
-}
-
-.cal-nav h2 {
-    margin: 0;
-    font-size: 19px;
-}
-
-.cal {
-    /* Seven columns never compress gracefully; let narrow screens scroll. */
-    overflow-x: auto;
-}
-
-.cal-row {
-    display: grid;
-    grid-template-columns: repeat(7, minmax(104px, 1fr));
-}
-
-.cal-dow {
-    padding: 6px 4px;
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--muted);
-    text-align: center;
-    text-transform: uppercase;
-}
-
-.cal-cell {
-    min-height: 104px;
-    padding: 4px;
-    border-top: 1px solid var(--border);
-    border-left: 1px solid var(--border);
-}
-
-.cal-row .cal-cell:last-child {
-    border-right: 1px solid var(--border);
-}
-
-.cal-row:last-child .cal-cell {
-    border-bottom: 1px solid var(--border);
-}
-
-.cal-cell.is-outside {
-    background: #f7f8fc;
-}
-
-.cal-cell.is-outside .cal-daynum {
-    color: #b6bccb;
-}
-
-.cal-cell.is-today {
-    background: #eaf2f9;
-    box-shadow: inset 0 0 0 2px var(--accent);
-}
-
-.cal-daynum {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--muted);
-}
-
-.cal-add {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    font-size: 16px;
-    line-height: 1;
-    color: var(--muted);
-    border-radius: 5px;
-    /* Revealed on hover so 42 plus-signs do not shout over the actual work.
-       Focus keeps it visible for keyboard users. */
-    opacity: 0;
-}
-
-.cal-cell:hover .cal-add,
-.cal-add:focus {
-    opacity: 1;
-}
-
-.cal-add:hover {
-    color: #fff;
-    background: var(--accent);
-    text-decoration: none;
-}
-
-.chip {
-    display: block;
-    margin-top: 3px;
-    padding: 3px 6px;
-    font-size: 12.5px;
-    font-weight: 500;
-    line-height: 1.3;
-    color: #fff;
-    border-radius: 5px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.chip:hover {
-    text-decoration: none;
-    filter: brightness(0.92);
-}
-
-.chip.is-done {
-    opacity: 0.5;
-    text-decoration: line-through;
-}
-
-/* Category colours, shared by calendar chips and list tags. */
+/* Category colours for the list tags. */
 .cat-subcontractor { background: var(--cat-subcontractor); }
 .cat-inspection    { background: var(--cat-inspection); }
 .cat-delivery      { background: var(--cat-delivery); }
@@ -719,13 +578,6 @@ a:hover {
         font-size: 24px;
     }
 
-    .cal-row {
-        grid-template-columns: repeat(7, minmax(88px, 1fr));
-    }
-
-    .cal-add {
-        opacity: 1;
-    }
 }
 
 /* ------------------------------------------------------- Voice memos --- */
@@ -895,14 +747,6 @@ a:hover {
 .btn-quiet:hover {
     color: var(--error-text);
     background: var(--error-bg);
-}
-
-/* A draft on the calendar reads as pencilled in, never as booked. */
-.chip.is-draft {
-    color: var(--text);
-    background: #fff;
-    border: 1px dashed currentColor;
-    opacity: 0.85;
 }
 
 .draft-banner {
@@ -1116,8 +960,16 @@ table.history td:nth-child(n+3) {
 
 /* The record panel carries no instructions: a big button, and live status only
    once there is something to report. */
-.record-status:empty {
+.record-status:empty,
+.record-queue:empty {
     display: none;
+}
+
+.record-queue {
+    margin: 4px 0 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
 }
 
 .record-status {
@@ -1129,4 +981,108 @@ table.history td:nth-child(n+3) {
     margin: 6px 0 0;
     font-size: 13px;
     color: var(--muted);
+}
+
+/* ------------------------------------------------- Dashboard layout --- */
+
+.panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.panel-head h2 {
+    margin: 0;
+}
+
+.more-note {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.job-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.job-list li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 0;
+    border-top: 1px solid var(--border);
+}
+
+.job-list li:first-child {
+    border-top: none;
+}
+
+.job-list a {
+    font-size: 16px;
+}
+
+.job-count {
+    font-size: 13.5px;
+    color: var(--muted);
+}
+
+/* ----------------------------------------------------- Draft rows --- */
+
+.draft-body {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+}
+
+.draft-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.draft-title {
+    margin: 0;
+    font-size: 16.5px;
+    font-weight: 600;
+}
+
+.draft-row .event-date {
+    padding-top: 2px;
+}
+
+/* A draft with no job cannot be filed, so make the gap obvious. */
+.draft-row.needs-job {
+    border-color: var(--accent);
+}
+
+.draft-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.draft-actions select {
+    width: auto;
+    min-width: 170px;
+    padding: 8px 12px;
+    font-size: 14px;
+}
+
+.draft-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 10px;
+}
+
+.draft-row > .draft-body {
+    flex: 1 1 100%;
 }

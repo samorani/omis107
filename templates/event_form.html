@@ -3,7 +3,13 @@
 {% block title %}{{ 'New reminder' if mode == 'new' else 'Edit reminder' }}{% endblock %}
 
 {% block content %}
-<p class="crumb"><a href="{{ url_for('project_detail', project_id=project.id) }}">&larr; {{ project.name }}</a></p>
+<p class="crumb">
+    {% if project %}
+        <a href="{{ url_for('project_detail', project_id=project.id) }}">&larr; {{ project.name }}</a>
+    {% else %}
+        <a href="{{ url_for('home') }}">&larr; All reminders</a>
+    {% endif %}
+</p>
 
 <div class="page-head">
     <div>
@@ -24,6 +30,17 @@
 
 <section class="panel">
     <form method="POST" class="stack-form">
+        <div class="field">
+            <label for="project_id">Job</label>
+            <select id="project_id" name="project_id" required>
+                <option value="">Choose a job&hellip;</option>
+                {% for job in projects %}
+                    <option value="{{ job.id }}"
+                        {{ 'selected' if event.get('project_id')|string == job.id|string }}>{{ job.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
         <div class="field">
             <label for="title">What is it?</label>
             <input type="text" id="title" name="title" required autofocus
@@ -63,7 +80,7 @@
             <button type="submit" class="btn btn-primary">
                 {% if mode == 'new' %}Add reminder{% elif is_draft %}Confirm and save{% else %}Save changes{% endif %}
             </button>
-            <a class="btn" href="{{ url_for('project_detail', project_id=project.id) }}">Cancel</a>
+            <a class="btn" href="{{ url_for('project_detail', project_id=project.id) if project else url_for('home') }}">Cancel</a>
         </div>
     </form>
 </section>

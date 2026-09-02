@@ -2,33 +2,75 @@
 {% from "_event_row.html" import event_row %}
 {% from "_draft_row.html" import draft_row %}
 
-{% block title %}My jobs{% endblock %}
+{% block title %}My reminders{% endblock %}
 
 {% block content %}
-<div class="page-head">
-    <div>
-        <h1>What's coming up</h1>
-        <p class="subtitle">Everything on your plate, across every job.</p>
-    </div>
-    <a class="btn btn-primary" href="{{ url_for('new_project') }}">+ New job</a>
-</div>
 
-{% if working %}
+{# The two things this page is for: put something in, and see what is coming. #}
 <section class="panel panel-record">
-    <p class="working-note">
-        Still working on {{ working }} voice memo{{ '' if working == 1 else 's' }}.
-        Refresh in a moment &mdash; the drafts will show up here.
-    </p>
+    <div class="record-box">
+        <form id="record-form" method="POST" enctype="multipart/form-data"
+              action="{{ url_for('voice_memo') }}"
+              data-status-url="{{ url_for('voice_status') }}"
+              data-working="{{ working }}">
+            <button type="button" id="record-btn" class="record-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="23"></line>
+                </svg>
+                <span class="record-label">Record a memo</span>
+            </button>
+        </form>
+        <div class="record-copy">
+            <p id="record-status" class="record-status"></p>
+            <p id="record-queue" class="record-queue"{% if not working %} hidden{% endif %}>
+                {%- if working -%}
+                    Writing up {{ working }} memo{{ '' if working == 1 else 's' }}&hellip;
+                {%- endif -%}
+            </p>
+            {% if ai_provider == 'stub' %}
+                <p class="record-demo">Demo mode &mdash; no AI key set.</p>
+            {% endif %}
+        </div>
+    </div>
+</section>
+
+{% if problems %}
+<section class="panel panel-warn">
+    <h2>Memos that need a look</h2>
+    <ul class="problem-list">
+        {% for note in problems %}
+        <li class="problem-row">
+            <div>
+                <p class="problem-msg">{{ note.error }}</p>
+                {% if note.transcript %}
+                    <p class="draft-heard"><span>You said:</span> &ldquo;{{ note.transcript }}&rdquo;</p>
+                {% endif %}
+            </div>
+            <div class="problem-actions">
+                {% if note.status == 'failed' %}
+                <form method="POST" action="{{ url_for('retry_note', note_id=note.id) }}">
+                    <button type="submit" class="btn btn-small">Try again</button>
+                </form>
+                {% endif %}
+                <form method="POST" action="{{ url_for('dismiss_note', note_id=note.id) }}">
+                    <button type="submit" class="btn btn-small btn-quiet">Dismiss</button>
+                </form>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
 </section>
 {% endif %}
 
 {% if drafts %}
 <section class="panel panel-draft">
-    <h2>Needs your OK &mdash; {{ drafts|length }} from your memos</h2>
-    <p class="empty">Recorded but not on the calendar yet. Confirm, fix, or throw each one away.</p>
+    <h2>Needs your OK &mdash; {{ drafts|length }}</h2>
     <ul class="draft-list">
         {% for event in drafts %}
-            {{ draft_row(event, show_project=True, back='home') }}
+            {{ draft_row(event, show_project=True, back='home', projects=projects) }}
         {% endfor %}
     </ul>
 </section>
@@ -46,37 +88,59 @@
 {% endif %}
 
 <section class="panel">
-    <h2>Next two weeks</h2>
+    <div class="panel-head">
+        <h2>Coming up</h2>
+        <div class="filters">
+            {% for key, label in [('2w', '2 weeks'), ('6w', '6 weeks'), ('all', 'Everything')] %}
+                <a class="filter{% if horizon == key %} is-on{% endif %}"
+                   href="{{ url_for('home', horizon=key) }}">{{ label }}</a>
+            {% endfor %}
+        </div>
+    </div>
+
     {% if upcoming %}
         <ul class="event-list">
             {% for event in upcoming %}
                 {{ event_row(event, show_project=True, back='home') }}
             {% endfor %}
         </ul>
+        {% if beyond %}
+            <p class="empty more-note">
+                {{ beyond }} more further out &mdash;
+                <a href="{{ url_for('home', horizon='all') }}">see everything</a>.
+            </p>
+        {% endif %}
     {% else %}
-        <p class="empty">Nothing scheduled in the next two weeks.</p>
+        <p class="empty">
+            {% if beyond %}
+                Nothing in this window.
+                <a href="{{ url_for('home', horizon='all') }}">See all {{ beyond }} ahead</a>.
+            {% else %}
+                Nothing scheduled. Record a memo{% if projects %}, or
+                <a href="{{ url_for('new_event', project_id=projects[0].id) }}">add one by hand</a>.
+                {%- else %} &mdash; <a href="{{ url_for('new_project') }}">start a job</a> first.{% endif %}
+            {% endif %}
+        </p>
     {% endif %}
 </section>
 
 <section class="panel">
-    <h2>My jobs</h2>
+    <div class="panel-head">
+        <h2>Jobs</h2>
+        <a class="btn btn-small" href="{{ url_for('new_project') }}">+ New job</a>
+    </div>
     {% if projects %}
-        <div class="project-grid">
+        <ul class="job-list">
             {% for project in projects %}
-                <a class="project-card" href="{{ url_for('project_detail', project_id=project.id) }}">
-                    <h3>{{ project.name }}</h3>
-                    {% if project.client_name %}<p class="project-client">{{ project.client_name }}</p>{% endif %}
-                    {% if project.address %}<p class="project-address">{{ project.address }}</p>{% endif %}
-                    <p class="project-count">
-                        {% if project.open_count %}
-                            {{ project.open_count }} reminder{{ '' if project.open_count == 1 else 's' }} coming up
-                        {% else %}
-                            Nothing scheduled
-                        {% endif %}
-                    </p>
-                </a>
+                <li>
+                    <a href="{{ url_for('project_detail', project_id=project.id) }}">{{ project.name }}</a>
+                    <span class="job-count">
+                        {%- if project.open_count %}{{ project.open_count }} coming up
+                        {%- else %}nothing scheduled{% endif -%}
+                    </span>
+                </li>
             {% endfor %}
-        </div>
+        </ul>
     {% else %}
         <p class="empty">
             No jobs yet. <a href="{{ url_for('new_project') }}">Create your first one</a> &mdash;

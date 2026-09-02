@@ -73,13 +73,23 @@ def requeue_stale(db):
 
 def process(db, note, coerce, upload_dir):
     """Transcribe, parse, and write drafts for one recording."""
-    project = db.execute('SELECT name FROM projects WHERE id = %s',
-                         (note['project_id'],)).fetchone()
-    if project is None:                      # job deleted while queued
-        db.execute("UPDATE voice_notes SET status = 'failed', error = %s, processed_at = now() "
-                   'WHERE id = %s', ('The job was deleted.', note['id']))
-        db.commit()
-        return
+    project_name = None
+    if note['project_id'] is not None:
+        project = db.execute('SELECT name FROM projects WHERE id = %s',
+                             (note['project_id'],)).fetchone()
+        if project is None:                  # job deleted while queued
+            db.execute("UPDATE voice_notes SET status = 'failed', error = %s, "
+                       'processed_at = now() WHERE id = %s',
+                       ('The job was deleted.', note['id']))
+            db.commit()
+            return
+        project_name = project['name']
+
+    # Memos recorded from the dashboard have no job, so offer the model the
+    # names it could be talking about.
+    jobs = db.execute('SELECT id, name FROM projects WHERE user_id = %s ORDER BY name',
+                      (note['user_id'],)).fetchall()
+    by_name = {j['name'].strip().lower(): j['id'] for j in jobs}
 
     audio_path = os.path.join(upload_dir, note['audio_filename'])
     transcript = ai.transcribe(audio_path)
@@ -90,19 +100,28 @@ def process(db, note, coerce, upload_dir):
         db.commit()
         return
 
-    candidates = ai.parse_transcript(transcript, project['name'])
+    candidates = ai.parse_transcript(transcript, project_name=project_name,
+                                     job_names=[j['name'] for j in jobs])
 
     created = 0
     for candidate in candidates:
         values = coerce(candidate)
         if values is None:                   # unusable date -- drop rather than guess
             continue
+        # The memo's own job wins; otherwise take the one the model named, but
+        # only on an exact (case-insensitive) match against a job that exists.
+        # A near-miss becomes null, which just asks the person to pick.
+        target = note['project_id']
+        if target is None:
+            heard = (candidate.get('job') or '').strip().lower()
+            target = by_name.get(heard)
+
         db.execute(
-            """INSERT INTO events (project_id, title, notes, event_date, event_time,
-                                   category, status, source, voice_note_id)
-               VALUES (%s, %s, %s, %s, %s, %s, 'draft', 'voice', %s)""",
-            (note['project_id'], values['title'], values['notes'], values['event_date'],
-             values['event_time'], values['category'], note['id']))
+            """INSERT INTO events (user_id, project_id, title, notes, event_date,
+                                   event_time, category, status, source, voice_note_id)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, 'draft', 'voice', %s)""",
+            (note['user_id'], target, values['title'], values['notes'],
+             values['event_date'], values['event_time'], values['category'], note['id']))
         created += 1
 
     db.execute(

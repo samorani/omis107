@@ -1,20 +1,22 @@
 {% macro event_row(event, show_project=False, back='') %}
-<li class="event-row{% if event.done %} is-done{% endif %}">
+<li class="event-row{% if event.done %} is-done{% endif %}{% if event.is_overdue %} is-overdue{% endif %}">
+    {# The date leads, and it is the biggest thing in the row: the deadline is
+       what the contractor is scanning for, not the wording of the note. #}
+    <span class="event-date">
+        <span class="event-dow">{{ event.event_date|day_label }}</span>
+        <span class="event-day">{{ event.event_date|date_label }}</span>
+        {% if event.event_time %}<span class="event-time">{{ event.event_time|pretty_time }}</span>{% endif %}
+    </span>
+
     <a class="event-main" href="{{ url_for('edit_event', event_id=event.id) }}">
-        <span class="event-when">
-            {{ event.event_date|pretty_date }}{% if event.event_time %} &middot; {{ event.event_time|pretty_time }}{% endif %}
-        </span>
         <span class="event-title">{{ event.title }}</span>
-        {% if show_project %}<span class="event-project">{{ event.project_name }}</span>{% endif %}
-        {% if event.done and event.completed_at %}
-            <span class="event-completed">Finished {{ event.completed_at|pretty_stamp }}</span>
-        {% endif %}
+        <span class="event-meta">
+            {% if show_project and event.project_name %}{{ event.project_name }} &middot; {% endif %}
+            <span class="dot cat-{{ event.category|lower }}"></span>{{ event.category }}
+            {%- if event.done and event.completed_at %} &middot; finished {{ event.completed_at|pretty_stamp }}{% endif %}
+        </span>
     </a>
 
-    <span class="tag cat-{{ event.category|lower }}">{{ event.category }}</span>
-
-    {# A labelled button, not a bare circle: the contractor should never have to
-       guess what the control does or whether it already fired. #}
     <form method="POST" action="{{ url_for('toggle_event', event_id=event.id) }}">
         {% if back %}<input type="hidden" name="next" value="{{ back }}">{% endif %}
         <button type="submit" class="done-btn{% if event.done %} is-done{% endif %}">
