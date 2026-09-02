@@ -1,0 +1,13 @@
+{% from "_draft_row.html" import draft_row %}
+{# Rendered both inside a page and on its own, as the fragment the browser
+   swaps in when a memo finishes writing up. #}
+{% if drafts %}
+<section class="panel panel-draft">
+    <h2>Needs your OK &mdash; {{ drafts|length }}</h2>
+    <ul class="draft-list">
+        {% for event in drafts %}
+            {{ draft_row(event, show_project=show_project, back=back, projects=projects) }}
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}

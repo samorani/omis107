@@ -1,22 +1,21 @@
 // Voice memo recording.
 //
-// The browser only captures audio -- transcription happens server-side, so this
-// works in every browser with MediaRecorder, not just the ones with a speech
-// API. getUserMedia needs a secure context: fine on localhost, needs HTTPS once
-// deployed.
+// The browser only captures audio -- transcription and parsing happen on the
+// server, so this works in every browser with MediaRecorder, not just the ones
+// with a speech API. getUserMedia needs a secure context: fine on localhost,
+// needs HTTPS once deployed.
 //
-// Uploads are fire-and-forget. The server stores the audio, queues it, and
-// answers 202 immediately, so stopping a recording is instant. A one-line
-// "writing up" note shows while memos are still being processed; the page
-// re-checks and reloads itself once the drafts are ready -- including when the
-// phone has been asleep in the meantime.
+// One memo at a time. The upload request does the whole job and only answers
+// once the drafts exist, so the button stays locked until it comes back -- you
+// always know whether the last memo landed before starting the next.
 document.addEventListener('DOMContentLoaded', function () {
     var button = document.getElementById('record-btn');
     if (!button) return;
 
     var status = document.getElementById('record-status');
-    var form = document.getElementById('record-form');
     var queue = document.getElementById('record-queue');
+    var form = document.getElementById('record-form');
+    var slot = document.getElementById('drafts-slot');
     var label = button.querySelector('.record-label');
 
     if (!(navigator.mediaDevices && window.MediaRecorder)) {
@@ -29,25 +28,15 @@ document.addEventListener('DOMContentLoaded', function () {
     var chunks = [];
     var timer = null;
     var startedAt = 0;
-    var inFlight = 0;        // uploads accepted but not yet finished server-side
-    var poller = null;
 
     function say(message) {
-        if (status) status.textContent = message;
+        if (status) status.textContent = message || '';
     }
 
-    // "Writing it up" is what a foreman calls turning site notes into something
-    // written down -- which is exactly what is happening to the recording.
-    function showQueue() {
+    function working(message) {
         if (!queue) return;
-        if (inFlight > 0) {
-            queue.hidden = false;
-            queue.textContent = inFlight === 1
-                ? 'Writing up 1 memo…'
-                : 'Writing up ' + inFlight + ' memos…';
-        } else {
-            queue.hidden = true;
-        }
+        queue.textContent = message || '';
+        queue.hidden = !message;
     }
 
     function pickMimeType() {
@@ -102,16 +91,20 @@ document.addEventListener('DOMContentLoaded', function () {
     function stop() {
         clearInterval(timer);
         button.classList.remove('is-recording');
-        label.textContent = 'Record a memo';
-        // The button is usable again the moment the recording stops -- the
-        // upload happens underneath.
-        say('Sent. Ready for another whenever you are.');
         recorder.stop();
+    }
+
+    function idle() {
+        button.disabled = false;
+        button.classList.remove('is-recording');
+        label.textContent = 'Record a memo';
+        working('');
     }
 
     function upload(blob) {
         if (!blob.size) {
             say('That recording was empty. Try again.');
+            idle();
             return;
         }
 
@@ -121,116 +114,62 @@ document.addEventListener('DOMContentLoaded', function () {
         var data = new FormData();
         data.append('audio', blob, 'memo.' + extension);
 
-        inFlight += 1;
-        showQueue();
+        // Locked until the server answers: one memo at a time.
+        button.disabled = true;
+        label.textContent = 'Writing it up';
+        say('');
+        working('Writing it up… this takes a few seconds.');
 
-        fetch(form.action, {method: 'POST', body: data})
+        fetch(form.action, {method: 'POST', body: data, credentials: 'same-origin'})
             .then(function (response) {
-                if (!response.ok) throw new Error('upload rejected');
-                startPolling();
+                return response.json()
+                    .catch(function () { return {}; })
+                    .then(function (body) { return {ok: response.ok, body: body}; });
             })
-            .catch(function () {
-                inFlight = Math.max(0, inFlight - 1);
-                showQueue();
-                say('That one did not upload. Check your connection and try again.');
+            .then(function (result) {
+                if (!result.ok) throw new Error(result.body.error || 'That one did not go through.');
+                return refreshDrafts(result.body.drafts).then(function () {
+                    idle();
+                    say(result.body.created
+                        ? (result.body.created === 1
+                            ? '1 draft reminder added below.'
+                            : result.body.created + ' draft reminders added below.')
+                        : 'Nothing in that one looked like a reminder.');
+                });
+            })
+            .catch(function (err) {
+                idle();
+                say(err.message || 'That one did not go through. Try again.');
             });
     }
 
-    // --- keeping the page in step with the server ------------------------
-    //
-    // Two things make this harder than a plain setInterval. Phones throttle or
-    // suspend background timers the moment the screen locks, and returning to
-    // the page may restore a frozen snapshot from the back/forward cache. So
-    // the interval is only the slow path: the real trigger is the user coming
-    // back, which we catch with visibilitychange and pageshow.
-    var BASE_DELAY = 2500;
-    var MAX_DELAY = 30000;
-    var delay = BASE_DELAY;
-    var sawWork = false;          // has anything been queued this page view?
-    var checking = false;
-
-    function scheduleNext() {
-        clearTimeout(poller);
-        if (document.hidden) return;      // no point burning battery in the background
-        poller = setTimeout(check, delay);
-    }
-
-    function startPolling() {
-        sawWork = true;
-        delay = BASE_DELAY;
-        scheduleNext();
-    }
-
-    // One status check. Never leaves the page unable to poll again: a failure
-    // backs off and retries rather than switching polling off for good.
-    function check(immediate) {
-        if (checking) return;
-        checking = true;
-        clearTimeout(poller);
-
-        fetch(form.dataset.statusUrl, {headers: {'Accept': 'application/json'},
-                                       cache: 'no-store'})
+    // Pull the freshly rendered panel and put it in place, so the new drafts
+    // appear without a page reload.
+    function refreshDrafts(token) {
+        if (!slot) return Promise.resolve();
+        return fetch(slot.dataset.fragmentUrl, {credentials: 'same-origin', cache: 'no-store'})
             .then(function (r) {
-                if (!r.ok) throw new Error('status ' + r.status);
-                return r.json();
+                if (!r.ok) throw new Error('fragment ' + r.status);
+                return r.text();
             })
-            .then(function (state) {
-                checking = false;
-                delay = BASE_DELAY;
-                inFlight = state.working;
-                showQueue();
-
-                if (state.working > 0) {
-                    sawWork = true;
-                    scheduleNext();
-                    return;
-                }
-                // Queue drained. Reload so the new drafts appear -- but only if
-                // something was actually queued, and never mid-recording.
-                if (sawWork && !(recorder && recorder.state === 'recording')) {
-                    window.location.reload();
-                }
+            .then(function (html) {
+                slot.innerHTML = html;
+                if (token) slot.dataset.token = token;
+                slot.classList.add('just-arrived');
+                setTimeout(function () { slot.classList.remove('just-arrived'); }, 1200);
             })
             .catch(function () {
-                checking = false;
-                delay = Math.min(delay * 2, MAX_DELAY);
-                scheduleNext();
+                // Could not patch the page; fall back to the blunt instrument.
+                window.location.reload();
             });
     }
-
-    // The user coming back is the signal that matters: check straight away
-    // rather than waiting for a timer the phone may have frozen.
-    document.addEventListener('visibilitychange', function () {
-        if (document.hidden) {
-            clearTimeout(poller);
-        } else if (sawWork) {
-            delay = BASE_DELAY;
-            check();
-        }
-    });
-
-    // Fires on a normal load and on a back/forward-cache restore, where the
-    // page is a frozen snapshot and every timer missed its turn.
-    window.addEventListener('pageshow', function (event) {
-        if (event.persisted && sawWork) {
-            delay = BASE_DELAY;
-            check();
-        }
-    });
 
     button.addEventListener('click', function () {
+        if (button.disabled) return;
         if (recorder && recorder.state === 'recording') {
             stop();
         } else {
             start();
         }
     });
-
-    // A memo queued before this page loaded (or on another device) is still
-    // being written up -- pick the loop back up.
-    if (form.dataset.working && parseInt(form.dataset.working, 10) > 0) {
-        inFlight = parseInt(form.dataset.working, 10);
-        showQueue();
-        startPolling();
-    }
 });

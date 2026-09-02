@@ -1,6 +1,5 @@
 {% extends "app_base.html" %}
 {% from "_event_row.html" import event_row %}
-{% from "_draft_row.html" import draft_row %}
 
 {% block title %}My reminders{% endblock %}
 
@@ -11,8 +10,7 @@
     <div class="record-box">
         <form id="record-form" method="POST" enctype="multipart/form-data"
               action="{{ url_for('voice_memo') }}"
-              data-status-url="{{ url_for('voice_status') }}"
-              data-working="{{ working }}">
+>
             <button type="button" id="record-btn" class="record-btn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -25,16 +23,15 @@
         </form>
         <div class="record-copy">
             <p id="record-status" class="record-status"></p>
-            <p id="record-queue" class="record-queue"{% if not working %} hidden{% endif %}>
-                {%- if working -%}
-                    Writing up {{ working }} memo{{ '' if working == 1 else 's' }}&hellip;
-                {%- endif -%}
-            </p>
+            <p id="record-queue" class="record-queue" hidden></p>
             {% if ai_provider == 'stub' %}
                 <p class="record-demo">Demo mode &mdash; no AI key set.</p>
             {% endif %}
         </div>
     </div>
+    <p class="record-alt">
+        <a href="{{ url_for('new_event') }}">or write a reminder yourself</a>
+    </p>
 </section>
 
 {% if problems %}
@@ -65,16 +62,13 @@
 </section>
 {% endif %}
 
-{% if drafts %}
-<section class="panel panel-draft">
-    <h2>Needs your OK &mdash; {{ drafts|length }}</h2>
-    <ul class="draft-list">
-        {% for event in drafts %}
-            {{ draft_row(event, show_project=True, back='home', projects=projects) }}
-        {% endfor %}
-    </ul>
-</section>
-{% endif %}
+{# Swapped in place when a memo finishes writing up -- no page reload. #}
+<div id="drafts-slot" data-fragment-url="{{ url_for('drafts_fragment') }}"
+     data-token="{{ drafts_token }}">
+    {% with show_project = True, back = 'home' %}
+        {% include "_drafts_panel.html" %}
+    {% endwith %}
+</div>
 
 {% if overdue %}
 <section class="panel panel-warn">
@@ -91,9 +85,9 @@
     <div class="panel-head">
         <h2>Coming up</h2>
         <div class="filters">
-            {% for key, label in [('2w', '2 weeks'), ('6w', '6 weeks'), ('all', 'Everything')] %}
+            {% for key, spec in horizons.items() %}
                 <a class="filter{% if horizon == key %} is-on{% endif %}"
-                   href="{{ url_for('home', horizon=key) }}">{{ label }}</a>
+                   href="{{ url_for('home', horizon=key) }}">{{ spec[0] }}</a>
             {% endfor %}
         </div>
     </div>

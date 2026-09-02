@@ -11,7 +11,6 @@ from psycopg.rows import dict_row
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import ai
-import worker
 
 # Load .env for local development. In production the platform supplies the real
 # environment, and load_dotenv() leaves already-set variables untouched.
@@ -131,6 +130,12 @@ def init_db():
         db.execute('ALTER TABLE voice_notes ALTER COLUMN project_id DROP NOT NULL')
         db.execute('ALTER TABLE events ALTER COLUMN project_id DROP NOT NULL')
         db.execute('CREATE INDEX IF NOT EXISTS events_user_idx ON events (user_id, event_date)')
+        # Memos are written up in-request now; nothing will ever claim a row left
+        # queued by the old background worker, so mark those for a manual retry.
+        db.execute("""UPDATE voice_notes
+                         SET status = 'failed',
+                             error = 'Left over from background processing -- try again.'
+                       WHERE status IN ('pending', 'processing')""")
         # Added after the events table already existed, so these run as ALTERs.
         # status: 'draft' until a person confirms it, then 'confirmed'.
         db.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'confirmed'")
@@ -144,10 +149,6 @@ def init_db():
 
 
 init_db()
-
-# One worker thread per process, polling the queue. Several gunicorn workers can
-# run this safely -- claiming a job uses FOR UPDATE SKIP LOCKED.
-worker.start(DATABASE_URL, lambda c: coerce_parsed_event(c), UPLOAD_DIR)
 
 
 # --------------------------------------------------------------------------
@@ -199,6 +200,94 @@ def owned_note(note_id):
     if note is None:
         abort(404)
     return note
+
+
+def write_up_memo(note_id):
+    """Transcribe a recording, parse it, and file the drafts. Runs in-request.
+
+    Returns the number of drafts created. Raises on failure -- the caller
+    records the message against the note so the contractor can retry.
+    """
+    db = get_db()
+    note = db.execute('SELECT * FROM voice_notes WHERE id = %s', (note_id,)).fetchone()
+
+    project_name = None
+    if note['project_id'] is not None:
+        row = db.execute('SELECT name FROM projects WHERE id = %s',
+                         (note['project_id'],)).fetchone()
+        project_name = row['name'] if row else None
+
+    # Memos recorded from the dashboard carry no job, so offer the model the
+    # names it could be talking about.
+    jobs = db.execute('SELECT id, name FROM projects WHERE user_id = %s ORDER BY name',
+                      (note['user_id'],)).fetchall()
+    by_name = {j['name'].strip().lower(): j['id'] for j in jobs}
+
+    transcript = ai.transcribe(os.path.join(UPLOAD_DIR, note['audio_filename']))
+    if not transcript:
+        raise ValueError('That recording came back empty -- try again, closer to the mic.')
+
+    candidates = ai.parse_transcript(transcript, project_name=project_name,
+                                     job_names=[j['name'] for j in jobs])
+
+    created = 0
+    for candidate in candidates:
+        values = coerce_parsed_event(candidate)
+        if values is None:                   # unusable date -- drop rather than guess
+            continue
+
+        # The memo's own job wins; otherwise take the one the model named, but
+        # only on an exact (case-insensitive) match against a job that exists.
+        # A near-miss becomes null, which just asks the person to pick.
+        target = note['project_id']
+        if target is None:
+            target = by_name.get((candidate.get('job') or '').strip().lower())
+
+        db.execute(
+            """INSERT INTO events (user_id, project_id, title, notes, event_date,
+                                   event_time, category, status, source, voice_note_id)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, 'draft', 'voice', %s)""",
+            (note['user_id'], target, values['title'], values['notes'],
+             values['event_date'], values['event_time'], values['category'], note_id))
+        created += 1
+
+    db.execute(
+        """UPDATE voice_notes
+              SET status = 'done', transcript = %s, processed_at = now(),
+                  error = CASE WHEN %s = 0
+                               THEN 'Nothing in this one looked like a reminder.' END
+            WHERE id = %s""",
+        (transcript, created, note_id))
+    db.commit()
+    return created
+
+
+def draft_rows(project_id=None):
+    """Drafts awaiting confirmation, for the dashboard or for one job."""
+    if project_id is None:
+        return get_db().execute(
+            """SELECT e.*, p.name AS project_name, v.transcript
+                 FROM events e
+                 LEFT JOIN projects p ON p.id = e.project_id
+                 LEFT JOIN voice_notes v ON v.id = e.voice_note_id
+                WHERE e.user_id = %s AND e.status = 'draft'
+                ORDER BY e.created_at DESC, e.event_date""",
+            (session['user_id'],)
+        ).fetchall()
+    return get_db().execute(
+        """SELECT e.*, p.name AS project_name, v.transcript
+             FROM events e
+             LEFT JOIN projects p ON p.id = e.project_id
+             LEFT JOIN voice_notes v ON v.id = e.voice_note_id
+            WHERE e.project_id = %s AND e.status = 'draft'
+            ORDER BY e.created_at DESC, e.event_date""",
+        (project_id,)
+    ).fetchall()
+
+
+def drafts_token(drafts):
+    """Cheap fingerprint the browser can compare to spot a change."""
+    return '%d:%d' % (len(drafts), max([d['id'] for d in drafts], default=0))
 
 
 def user_projects():
@@ -313,20 +402,6 @@ def pretty_time(value):
     return '%d:%02d %s' % (hour, value.minute, suffix)
 
 
-@app.template_filter('pretty_date')
-def pretty_date(value):
-    """2026-09-01 -> Tue, Sep 1. Today and tomorrow get called out by name."""
-    if value is None:
-        return ''
-    today = date.today()
-    if value == today:
-        return 'Today'
-    if value == today + timedelta(days=1):
-        return 'Tomorrow'
-    return '%s, %s %d' % (DAY_NAMES[(value.weekday() + 1) % 7],
-                          MONTH_NAMES[value.month - 1][:3], value.day)
-
-
 @app.template_filter('day_label')
 def day_label(value):
     """TODAY / TOMORROW / TUE -- the top line of the date block."""
@@ -420,9 +495,9 @@ def logout():
 # How far ahead the dashboard looks. Anything past the window is still there,
 # a click away, rather than hidden behind pagination.
 HORIZONS = {
-    '2w': ('Next two weeks', 13),
-    '6w': ('Next six weeks', 41),
-    'all': ('Everything ahead', None),
+    '2w': ('2 weeks', 13),
+    '6w': ('6 weeks', 41),
+    'all': ('Everything', None),
 }
 
 
@@ -455,15 +530,7 @@ def home():
         horizon = '2w'
     _, days = HORIZONS[horizon]
 
-    drafts = db.execute(
-        """SELECT e.*, p.name AS project_name, v.transcript
-             FROM events e
-             LEFT JOIN projects p ON p.id = e.project_id
-             LEFT JOIN voice_notes v ON v.id = e.voice_note_id
-            WHERE e.user_id = %s AND e.status = 'draft'
-            ORDER BY e.created_at DESC, e.event_date""",
-        (session['user_id'],)
-    ).fetchall()
+    drafts = draft_rows()
 
     overdue = db.execute(
         """SELECT e.*, p.name AS project_name
@@ -497,12 +564,6 @@ def home():
         (session['user_id'], today + timedelta(days=days) if days is not None else today)
     ).fetchone()['n'] if days is not None else 0
 
-    working = db.execute(
-        "SELECT count(*) AS n FROM voice_notes "
-        "WHERE user_id = %s AND status IN ('pending', 'processing')",
-        (session['user_id'],)
-    ).fetchone()['n']
-
     problems = db.execute(
         """SELECT v.*, p.name AS project_name
              FROM voice_notes v LEFT JOIN projects p ON p.id = v.project_id
@@ -513,8 +574,8 @@ def home():
     ).fetchall()
 
     return render_template('home.html', projects=projects, drafts=drafts,
-                           overdue=overdue, upcoming=upcoming, working=working,
-                           problems=problems, horizon=horizon, horizons=HORIZONS,
+                           drafts_token=drafts_token(drafts),
+                           overdue=overdue, upcoming=upcoming, problems=problems, horizon=horizon, horizons=HORIZONS,
                            beyond=beyond, ai_provider=ai.provider_name())
 
 
@@ -620,20 +681,7 @@ def project_detail(project_id):
         (project_id, today)
     ).fetchall()
 
-    drafts = db.execute(
-        """SELECT e.*, v.transcript
-             FROM events e
-             LEFT JOIN voice_notes v ON v.id = e.voice_note_id
-            WHERE e.project_id = %s AND e.status = 'draft'
-            ORDER BY e.created_at DESC, e.event_date""",
-        (project_id,)
-    ).fetchall()
-
-    working = db.execute(
-        "SELECT count(*) AS n FROM voice_notes "
-        "WHERE project_id = %s AND status IN ('pending', 'processing')",
-        (project_id,)
-    ).fetchone()['n']
+    drafts = draft_rows(project_id)
 
     problems = db.execute(
         """SELECT * FROM voice_notes
@@ -649,7 +697,8 @@ def project_detail(project_id):
         overdue=overdue,
         upcoming=upcoming,
         drafts=drafts,
-        working=working,
+        drafts_token=drafts_token(drafts),
+        projects=user_projects(),
         problems=problems,
         ai_provider=ai.provider_name(),
     )
@@ -700,10 +749,12 @@ def delete_project(project_id):
 # Events
 # --------------------------------------------------------------------------
 
+@app.route('/reminders/new', methods=['GET', 'POST'])
 @app.route('/projects/<int:project_id>/events/new', methods=['GET', 'POST'])
 @login_required
-def new_event(project_id):
-    project = owned_project(project_id)
+def new_event(project_id=None):
+    # Reached from the dashboard there is no job yet, so the form asks for one.
+    project = owned_project(project_id) if project_id else None
 
     if request.method == 'POST':
         values, error = parse_event_form(request.form, default_project_id=project_id)
@@ -713,19 +764,20 @@ def new_event(project_id):
                                    event_id=None, categories=EVENT_CATEGORIES,
                                    projects=user_projects(), mode='new'), 400
 
+        # Written from the dashboard there is no job in the URL, so land on
+        # whichever one the form picked.
+        target = owned_project(int(values['project_id']))['id']
         db = get_db()
         db.execute(
             '''INSERT INTO events (user_id, project_id, title, notes, event_date,
                                    event_time, category)
                VALUES (%s, %s, %s, %s, %s, %s, %s)''',
-            (session['user_id'], owned_project(int(values['project_id']))['id'],
-             values['title'], values['notes'], values['event_date'],
-             values['event_time'] or None, values['category'])
+            (session['user_id'], target, values['title'], values['notes'],
+             values['event_date'], values['event_time'] or None, values['category'])
         )
         db.commit()
-        return redirect(url_for('project_detail', project_id=project_id))
+        return redirect(url_for('project_detail', project_id=target))
 
-    # The "+" on a calendar day hands the date in.
     prefill = request.args.get('date', date.today().isoformat())
     try:
         date.fromisoformat(prefill)
@@ -734,7 +786,7 @@ def new_event(project_id):
 
     return render_template('event_form.html', project=project,
                            event={'event_date': prefill, 'category': 'Other',
-                                  'project_id': str(project_id)},
+                                  'project_id': str(project_id) if project_id else ''},
                            event_id=None, categories=EVENT_CATEGORIES,
                            projects=user_projects(), mode='new')
 
@@ -851,11 +903,10 @@ def confirm_event(event_id):
 @app.route('/projects/<int:project_id>/voice', methods=['POST'])
 @login_required
 def voice_memo(project_id=None):
-    """Accept a recording and return at once.
+    """Record, write up, answer. One memo at a time.
 
-    project_id is optional: memos recorded from the dashboard have no job yet.
-    The worker tries to pick one out of what was said, and anything it cannot
-    place is assigned by hand when the draft is confirmed.
+    Processing happens here rather than on a queue: the audio only exists on
+    this machine, so the work has to happen where the file is.
     """
     if project_id is not None:
         owned_project(project_id)
@@ -872,34 +923,41 @@ def voice_memo(project_id=None):
     db = get_db()
     note = db.execute(
         "INSERT INTO voice_notes (user_id, project_id, audio_filename, status) "
-        "VALUES (%s, %s, %s, 'pending') RETURNING id",
+        "VALUES (%s, %s, %s, 'processing') RETURNING id",
         (session['user_id'], project_id, filename)
     ).fetchone()
     db.commit()
 
-    return jsonify(note_id=note['id'], status='pending'), 202          # accepted, not finished
+    try:
+        created = write_up_memo(note['id'])
+    except Exception as exc:
+        db.rollback()
+        app.logger.exception('writing up memo %s failed', note['id'])
+        db.execute("UPDATE voice_notes SET status = 'failed', error = %s, processed_at = now() "
+                   'WHERE id = %s', (str(exc)[:500], note['id']))
+        db.commit()
+        return jsonify(error=str(exc)[:200]), 502
+
+    return jsonify(created=created,
+                   drafts=drafts_token(draft_rows(project_id)))
 
 
-@app.route('/voice/status')
-@app.route('/projects/<int:project_id>/voice/status')
+@app.route('/fragments/drafts')
+@app.route('/projects/<int:project_id>/fragments/drafts')
 @login_required
-def voice_status(project_id=None):
-    """How many memos are still being written up."""
-    db = get_db()
+def drafts_fragment(project_id=None):
+    """Just the "Needs your OK" panel, for the page to swap in place.
+
+    Rendering it server-side means the fragment and the full page come from one
+    template -- there is no second, drifting copy of the markup in JavaScript.
+    """
     if project_id is not None:
         owned_project(project_id)
-        row = db.execute(
-            "SELECT count(*) AS working FROM voice_notes "
-            "WHERE project_id = %s AND status IN ('pending', 'processing')",
-            (project_id,)
-        ).fetchone()
-    else:
-        row = db.execute(
-            "SELECT count(*) AS working FROM voice_notes "
-            "WHERE user_id = %s AND status IN ('pending', 'processing')",
-            (session['user_id'],)
-        ).fetchone()
-    return jsonify(working=row['working'])
+    drafts = draft_rows(project_id)
+    return render_template('_drafts_panel.html', drafts=drafts,
+                           projects=user_projects(),
+                           show_project=project_id is None,
+                           back='home' if project_id is None else '')
 
 
 @app.route('/voice-notes/<int:note_id>/dismiss', methods=['POST'])
@@ -918,10 +976,20 @@ def dismiss_note(note_id):
 def retry_note(note_id):
     note = owned_note(note_id)
     db = get_db()
-    db.execute("UPDATE voice_notes SET status = 'pending', attempts = 0, error = NULL "
-               'WHERE id = %s', (note_id,))
+    db.execute("UPDATE voice_notes SET status = 'processing', error = NULL WHERE id = %s",
+               (note_id,))
     db.commit()
-    flash('Trying that memo again.')
+    try:
+        created = write_up_memo(note_id)
+    except Exception as exc:
+        db.rollback()
+        app.logger.exception('retry of memo %s failed', note_id)
+        db.execute("UPDATE voice_notes SET status = 'failed', error = %s, processed_at = now() "
+                   'WHERE id = %s', (str(exc)[:500], note_id))
+        db.commit()
+        flash('That memo still would not go through.')
+    else:
+        flash('Added %d draft reminder%s.' % (created, '' if created == 1 else 's'))
     return redirect(_back_to(note['project_id']))
 
 
